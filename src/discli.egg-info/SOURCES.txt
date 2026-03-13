@@ -1,0 +1,9 @@
+pyproject.toml
+src/discli/__init__.py
+src/discli/cli.py
+src/discli.egg-info/PKG-INFO
+src/discli.egg-info/SOURCES.txt
+src/discli.egg-info/dependency_links.txt
+src/discli.egg-info/entry_points.txt
+src/discli.egg-info/requires.txt
+src/discli.egg-info/top_level.txt

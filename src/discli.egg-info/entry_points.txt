@@ -1,0 +1,2 @@
+[console_scripts]
+discli = discli.cli:main
