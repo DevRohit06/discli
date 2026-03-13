@@ -1,7 +1,11 @@
 import click
 
 from discli.config import load_config
+from discli.commands.channel import channel_group
 from discli.commands.config_cmd import config_group
+from discli.commands.message import message_group
+from discli.commands.reaction import reaction_group
+from discli.commands.server import server_group
 
 
 @click.group()
@@ -18,4 +22,8 @@ def main(ctx, token, use_json):
     ctx.obj["use_json"] = use_json
 
 
+main.add_command(channel_group)
 main.add_command(config_group)
+main.add_command(message_group)
+main.add_command(reaction_group)
+main.add_command(server_group)
