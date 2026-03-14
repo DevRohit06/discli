@@ -573,6 +573,12 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
                 return await _handle_stream_end(cmd)
             elif action == "interaction_followup":
                 return await _action_interaction_followup(cmd)
+            elif action == "thread_create":
+                return await _action_thread_create(cmd)
+            elif action == "thread_send":
+                return await _action_thread_send(cmd)
+            elif action == "poll_send":
+                return await _action_poll_send(cmd)
             else:
                 return {"error": f"Unknown action: {action}"}
         except Exception as e:
@@ -653,6 +659,92 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             return {"error": f"Followup failed: {e}"}
         interactions.pop(itk, None)
         return {"ok": True}
+
+    async def _action_thread_create(cmd: dict) -> dict:
+        channel_id = cmd.get("channel_id")
+        name = cmd.get("name")
+        if not name:
+            return {"error": "Missing 'name' for thread"}
+        message_id = cmd.get("message_id")
+        auto_archive = cmd.get("auto_archive_duration", 1440)
+        content = cmd.get("content")
+
+        ch = resolve_channel_by_id(channel_id)
+        if not ch:
+            return {"error": f"Channel not found: {channel_id}"}
+
+        if message_id:
+            msg = await ch.fetch_message(int(message_id))
+            thread = await msg.create_thread(name=name, auto_archive_duration=auto_archive)
+        else:
+            thread = await ch.create_thread(
+                name=name,
+                auto_archive_duration=auto_archive,
+                type=discord.ChannelType.public_thread,
+            )
+
+        # Optionally send an initial message in the thread
+        if content:
+            await thread.send(content)
+
+        return {
+            "ok": True,
+            "thread_id": str(thread.id),
+            "thread_name": thread.name,
+        }
+
+    async def _action_thread_send(cmd: dict) -> dict:
+        thread_id = cmd.get("thread_id")
+        if not thread_id:
+            return {"error": "Missing 'thread_id'"}
+        content = cmd.get("content", "")
+        thread = client.get_channel(int(thread_id))
+        if not thread:
+            return {"error": f"Thread not found: {thread_id}"}
+        files = []
+        for f in cmd.get("files", []):
+            files.append(discord.File(f))
+        kwargs = {"content": content}
+        if files:
+            kwargs["files"] = files
+        msg = await thread.send(**kwargs)
+        return {"ok": True, "message_id": str(msg.id)}
+
+    async def _action_poll_send(cmd: dict) -> dict:
+        import datetime
+
+        channel_id = cmd.get("channel_id")
+        question = cmd.get("question")
+        answers = cmd.get("answers", [])
+        duration_hours = cmd.get("duration_hours", 24)
+        multiple = cmd.get("multiple", False)
+        content = cmd.get("content")
+
+        if not question:
+            return {"error": "Missing 'question' for poll"}
+        if len(answers) < 2:
+            return {"error": "Poll needs at least 2 answers"}
+
+        ch = resolve_channel_by_id(channel_id)
+        if not ch:
+            return {"error": f"Channel not found: {channel_id}"}
+
+        poll = discord.Poll(
+            question=question,
+            duration=datetime.timedelta(hours=duration_hours),
+            multiple=multiple,
+        )
+        for answer in answers:
+            if isinstance(answer, dict):
+                poll.add_answer(text=answer["text"], emoji=answer.get("emoji"))
+            else:
+                poll.add_answer(text=str(answer))
+
+        kwargs = {"poll": poll}
+        if content:
+            kwargs["content"] = content
+        msg = await ch.send(**kwargs)
+        return {"ok": True, "message_id": str(msg.id)}
 
     # ── Run ─────────────────────────────────────────────────────────
 

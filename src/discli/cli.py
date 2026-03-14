@@ -10,6 +10,7 @@ from discli.commands.message import message_group
 from discli.commands.reaction import reaction_group
 from discli.commands.role import role_group
 from discli.commands.server import server_group
+from discli.commands.poll import poll_group
 from discli.commands.thread import thread_group
 from discli.commands.typing_cmd import typing_cmd
 from discli.commands.serve import serve_cmd
@@ -44,6 +45,7 @@ main.add_command(message_group)
 main.add_command(reaction_group)
 main.add_command(role_group)
 main.add_command(server_group)
+main.add_command(poll_group)
 main.add_command(thread_group)
 main.add_command(typing_cmd)
 main.add_command(serve_cmd)
