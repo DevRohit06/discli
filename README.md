@@ -5,13 +5,17 @@ A command-line interface for Discord, built for AI agents and humans. Manage ser
 ## Install
 
 ```bash
-pip install discord-cli-agent
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/DevRohit06/discli/main/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/DevRohit06/discli/main/install.ps1 | iex
 ```
 
-For development:
+Or with pip:
 
 ```bash
-pip install -e .
+pip install discord-cli-agent
 ```
 
 Requires Python 3.10+.
