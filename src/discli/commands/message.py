@@ -15,8 +15,9 @@ def message_group():
 @click.argument("text")
 @click.option("--embed-title", default=None, help="Embed title.")
 @click.option("--embed-desc", default=None, help="Embed description.")
+@click.option("--file", "files", multiple=True, type=click.Path(exists=True), help="File to attach (repeatable).")
 @click.pass_context
-def message_send(ctx, channel, text, embed_title, embed_desc):
+def message_send(ctx, channel, text, embed_title, embed_desc, files):
     """Send a message to a channel."""
 
     def action(client):
@@ -25,8 +26,14 @@ def message_send(ctx, channel, text, embed_title, embed_desc):
             embed = None
             if embed_title or embed_desc:
                 embed = discord.Embed(title=embed_title, description=embed_desc)
-            msg = await ch.send(content=text, embed=embed)
+            attachments = [discord.File(f) for f in files]
+            kwargs = {"content": text, "embed": embed}
+            if attachments:
+                kwargs["files"] = attachments
+            msg = await ch.send(**kwargs)
             data = {"id": str(msg.id), "channel": ch.name, "content": msg.content}
+            if msg.attachments:
+                data["attachments"] = [{"filename": a.filename, "url": a.url, "size": a.size} for a in msg.attachments]
             output(ctx, data, plain_text=f"Sent message {msg.id} to #{ch.name}")
         return _action(client)
 
@@ -207,16 +214,23 @@ def message_get(ctx, channel, message_id):
 @click.argument("channel")
 @click.argument("message_id")
 @click.argument("text")
+@click.option("--file", "files", multiple=True, type=click.Path(exists=True), help="File to attach (repeatable).")
 @click.pass_context
-def message_reply(ctx, channel, message_id, text):
+def message_reply(ctx, channel, message_id, text, files):
     """Reply to a specific message."""
 
     def action(client):
         async def _action(client):
             ch = resolve_channel(client, channel)
             original = await ch.fetch_message(int(message_id))
-            msg = await original.reply(content=text)
+            attachments = [discord.File(f) for f in files]
+            kwargs = {"content": text}
+            if attachments:
+                kwargs["files"] = attachments
+            msg = await original.reply(**kwargs)
             data = {"id": str(msg.id), "channel": ch.name, "content": msg.content, "reply_to": message_id}
+            if msg.attachments:
+                data["attachments"] = [{"filename": a.filename, "url": a.url, "size": a.size} for a in msg.attachments]
             output(ctx, data, plain_text=f"Replied to {message_id} in #{ch.name}")
         return _action(client)
 

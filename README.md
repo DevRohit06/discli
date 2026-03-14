@@ -116,10 +116,12 @@ Every command supports `--json` for machine-readable output.
 ```bash
 discli message send #general "Hello world!"
 discli message send #general "Check this out" --embed-title "News" --embed-desc "Big update"
+discli message send #general "Here's the report" --file report.pdf
+discli message send #general "Screenshots" --file bug.png --file logs.txt
 discli message list #general --limit 20
 discli message list #general --after 2026-03-01 --before 2026-03-14
 discli message get #general 123456789
-discli message reply #general 123456789 "Thanks for your question!"
+discli message reply #general 123456789 "Here you go" --file fix.patch
 discli message edit #general 123456789 "Updated text"
 discli message delete #general 123456789
 ```
@@ -140,6 +142,7 @@ discli message history #general --hours 24 --limit 500
 
 ```bash
 discli dm send alice "Hey, need help?"
+discli dm send alice "Check this file" --file notes.pdf
 discli dm send 123456789 "Sent by user ID"
 discli dm list alice --limit 10
 ```
@@ -168,6 +171,7 @@ discli channel delete #old-channel
 discli thread create #general 123456789 "Support Ticket"
 discli thread list #general
 discli thread send 987654321 "Following up on your issue"
+discli thread send 987654321 "Attached the logs" --file debug.log
 ```
 
 ### Servers

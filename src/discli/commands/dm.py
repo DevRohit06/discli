@@ -28,21 +28,29 @@ def dm_group():
 @dm_group.command("send")
 @click.argument("user")
 @click.argument("text")
+@click.option("--file", "files", multiple=True, type=click.Path(exists=True), help="File to attach (repeatable).")
 @click.pass_context
-def dm_send(ctx, user, text):
+def dm_send(ctx, user, text, files):
     """Send a direct message to a user."""
+    import discord
 
     def action(client):
         async def _action(client):
             u = resolve_user(client, user)
             dm_channel = await u.create_dm()
-            msg = await dm_channel.send(content=text)
+            attachments = [discord.File(f) for f in files]
+            kwargs = {"content": text}
+            if attachments:
+                kwargs["files"] = attachments
+            msg = await dm_channel.send(**kwargs)
             data = {
                 "id": str(msg.id),
                 "to": str(u),
                 "to_id": str(u.id),
                 "content": msg.content,
             }
+            if msg.attachments:
+                data["attachments"] = [{"filename": a.filename, "url": a.url, "size": a.size} for a in msg.attachments]
             output(ctx, data, plain_text=f"Sent DM to {u} (ID: {u.id}): {text[:50]}")
         return _action(client)
 

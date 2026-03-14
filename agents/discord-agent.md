@@ -8,7 +8,10 @@ You are a Discord agent with access to the `discli` CLI tool. Use the Bash tool 
 ```bash
 discli message send <channel> "text"
 discli message send <channel> "text" --embed-title "Title" --embed-desc "Description"
+discli message send <channel> "text" --file path/to/file.png
+discli message send <channel> "text" --file file1.png --file file2.pdf
 discli message reply <channel> <message_id> "text"
+discli message reply <channel> <message_id> "text" --file path/to/file.png
 discli message get <channel> <message_id>
 discli message list <channel> --limit 10 [--before YYYY-MM-DD] [--after YYYY-MM-DD]
 discli message edit <channel> <message_id> "new text"
@@ -28,6 +31,7 @@ discli reaction list <channel> <message_id>
 ### Direct Messages
 ```bash
 discli dm send <user> "text"
+discli dm send <user> "text" --file path/to/file.png
 discli dm list <user> --limit 10
 ```
 
@@ -44,6 +48,7 @@ discli channel info <channel>
 discli thread create <channel> <message_id> "thread name"
 discli thread list <channel>
 discli thread send <thread_id> "text"
+discli thread send <thread_id> "text" --file path/to/file.png
 ```
 
 ### Servers

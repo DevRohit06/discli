@@ -84,20 +84,27 @@ def thread_list(ctx, channel):
 @thread_group.command("send")
 @click.argument("thread")
 @click.argument("text")
+@click.option("--file", "files", multiple=True, type=click.Path(exists=True), help="File to attach (repeatable).")
 @click.pass_context
-def thread_send(ctx, thread, text):
+def thread_send(ctx, thread, text, files):
     """Send a message to a thread."""
 
     def action(client):
         async def _action(client):
             t = resolve_thread(client, thread)
-            msg = await t.send(content=text)
+            attachments = [discord.File(f) for f in files]
+            kwargs = {"content": text}
+            if attachments:
+                kwargs["files"] = attachments
+            msg = await t.send(**kwargs)
             data = {
                 "id": str(msg.id),
                 "thread": t.name,
                 "thread_id": str(t.id),
                 "content": msg.content,
             }
+            if msg.attachments:
+                data["attachments"] = [{"filename": a.filename, "url": a.url, "size": a.size} for a in msg.attachments]
             output(ctx, data, plain_text=f"Sent message {msg.id} to thread '{t.name}'")
         return _action(client)
 
