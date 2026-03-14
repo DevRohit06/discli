@@ -1,5 +1,5 @@
 # discli installer for Windows
-# irm https://raw.githubusercontent.com/DevRohit06/discli/main/install.ps1 | iex
+# irm https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.ps1 | iex
 
 Write-Host "Installing discli..." -ForegroundColor Cyan
 Write-Host ""

@@ -6,10 +6,10 @@ A command-line interface for Discord, built for AI agents and humans. Manage ser
 
 ```bash
 # macOS/Linux
-curl -fsSL https://raw.githubusercontent.com/DevRohit06/discli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.sh | bash
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/DevRohit06/discli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.ps1 | iex
 ```
 
 Or with pip:
@@ -181,12 +181,16 @@ Ready-to-run examples in the [`examples/`](examples/) directory:
 
 | Example | Description |
 |---------|-------------|
-| [`claude_agent.py`](examples/claude_agent.py) | AI support agent powered by Claude Agent SDK — Claude uses discli as a tool to read and respond on Discord |
+| [`claude_agent.py`](examples/claude_agent.py) | AI support agent powered by Claude Agent SDK — persistent session, loads instructions from [`agents/discord-agent.md`](agents/discord-agent.md) |
 | [`support_agent.py`](examples/support_agent.py) | Keyword-based support bot that replies to @mentions |
 | [`thread_support_agent.py`](examples/thread_support_agent.py) | Creates a thread per support request and continues conversations inside |
 | [`moderation_bot.py`](examples/moderation_bot.py) | Watches for banned words, warns users, kicks after repeated violations |
 | [`channel_logger.sh`](examples/channel_logger.sh) | Logs all messages from a channel to a JSONL file |
 | [`reaction_poll.sh`](examples/reaction_poll.sh) | Creates a poll with emoji reactions |
+
+### Agent Instructions
+
+The [`agents/discord-agent.md`](agents/discord-agent.md) file contains the full discli command reference for AI agents. Drop it into any agent's system prompt — works with Claude, OpenAI, LangChain, or any framework.
 
 ### Quick start — Claude Agent
 
@@ -201,7 +205,7 @@ Uses your existing Claude Code authentication — no API key needed.
 ### Quick start — Bash agent loop
 
 ```bash
-discli listen --json --events messages | while read -r event; do
+discli --json listen --events messages | while read -r event; do
   mentions_bot=$(echo "$event" | jq -r '.mentions_bot')
   if [ "$mentions_bot" = "true" ]; then
     channel_id=$(echo "$event" | jq -r '.channel_id')
@@ -210,6 +214,24 @@ discli listen --json --events messages | while read -r event; do
     discli message reply "$channel_id" "$message_id" "Hello! How can I help?"
   fi
 done
+```
+
+## Project Structure
+
+```
+discli/
+├── src/discli/          # CLI source code
+│   ├── cli.py           # Root click group
+│   ├── client.py        # Async discord.py wrapper
+│   ├── config.py        # Token storage
+│   ├── utils.py         # Output formatting, resolvers
+│   └── commands/        # Command groups (message, channel, role, etc.)
+├── agents/              # Agent instruction files
+│   └── discord-agent.md # Full discli reference for AI agents
+├── examples/            # Ready-to-run agent examples
+├── installers/          # Install scripts (curl-friendly)
+├── tests/               # Unit tests
+└── pyproject.toml
 ```
 
 ## Configuration

@@ -1,6 +1,6 @@
 #!/bin/bash
 # discli installer
-# curl -fsSL https://raw.githubusercontent.com/DevRohit06/discli/main/install.sh | bash
+# curl -fsSL https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.sh | bash
 
 set -e
 
