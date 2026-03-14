@@ -188,10 +188,11 @@ Ready-to-run examples in the [`examples/`](examples/) directory:
 
 ```bash
 pip install discord-cli-agent claude-agent-sdk
-export ANTHROPIC_API_KEY=your-key
 discli config set token YOUR_BOT_TOKEN
 python examples/claude_agent.py
 ```
+
+Uses your existing Claude Code authentication — no API key needed.
 
 ### Quick start — Bash agent loop
 
