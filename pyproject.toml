@@ -6,7 +6,14 @@ build-backend = "setuptools.build_meta"
 name = "discli"
 version = "0.1.0"
 description = "Discord CLI for AI agents"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "discord.py>=2.3",
     "click>=8.1",
