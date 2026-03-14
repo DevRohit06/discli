@@ -18,38 +18,57 @@ Manage Discord servers, send messages, react, handle DMs, threads, and monitor e
 
 ## How it works
 
-```
-                         +-----------+
-                         |  discli   |
-                         |   CLI     |
-                         +-----+-----+
-                               |
-              +----------------+----------------+
-              |                |                |
-        +-----v-----+   +-----v-----+   +------v------+
-        |  Command   |   |  Listen   |   |  Security   |
-        |  (fire &   |   |  (stay    |   |  (perms,    |
-        |   exit)    |   |  connected)|  |  audit,     |
-        +-----+------+  +-----+-----+   |  rate limit)|
-              |                |         +-------------+
-              +--------+-------+
-                       |
-                 +-----v-----+
-                 | discord.py|
-                 |  (Bot API)|
-                 +-----------+
+```mermaid
+graph TD
+    A[discli CLI] --> B[Commands]
+    A --> C[Listen]
+    A --> D[Security]
+
+    B --> |fire & exit| E[discord.py]
+    C --> |stay connected| E
+
+    D --> D1[Permission Profiles]
+    D --> D2[Audit Logging]
+    D --> D3[Rate Limiting]
+    D --> D4[User Permission Check]
+
+    E --> F[Discord Bot API]
+
+    style A fill:#5865F2,color:#fff
+    style F fill:#5865F2,color:#fff
+    style D fill:#ED4245,color:#fff
 ```
 
-```
-  AI Agent Loop:
+```mermaid
+graph LR
+    A[discli listen --json] --> B[Events\nJSONL stream]
+    B --> C[AI Agent\ne.g. Claude]
+    C --> D[discli message reply]
+    D --> E[Discord]
+    A --> E
 
-  discli listen --json        discli message reply
-       |                            ^
-       v                            |
-  +---------+    +----------+  +----+----+
-  | Events  |--->| AI Model |--> Response|
-  | (JSONL) |    | (Claude) |  |         |
-  +---------+    +----------+  +---------+
+    style A fill:#5865F2,color:#fff
+    style C fill:#D97706,color:#fff
+    style E fill:#5865F2,color:#fff
+```
+
+```mermaid
+graph TD
+    subgraph Security Layer
+        P[Permission Profiles] --> |full / chat / readonly| CHECK{Allowed?}
+        CHECK --> |Yes| EXEC[Execute Command]
+        CHECK --> |No| DENY[Deny + Log]
+        EXEC --> CONFIRM{Destructive?}
+        CONFIRM --> |Yes| PROMPT[Confirm or --yes]
+        CONFIRM --> |No| RUN[Run]
+        PROMPT --> RUN
+        RUN --> AUDIT[Audit Log]
+        RUN --> RATE[Rate Limiter]
+    end
+
+    style P fill:#ED4245,color:#fff
+    style DENY fill:#ED4245,color:#fff
+    style AUDIT fill:#57F287,color:#000
 ```
 
 ## Install
