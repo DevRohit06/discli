@@ -1,0 +1,104 @@
+import click
+import discord
+
+from discli.client import run_discord
+from discli.utils import output, resolve_channel, resolve_guild
+
+
+def resolve_thread(client, identifier: str):
+    """Resolve a thread by ID or name."""
+    try:
+        thread_id = int(identifier)
+        for guild in client.guilds:
+            for thread in guild.threads:
+                if thread.id == thread_id:
+                    return thread
+    except ValueError:
+        pass
+    for guild in client.guilds:
+        for thread in guild.threads:
+            if thread.name.lower() == identifier.lower():
+                return thread
+    raise click.ClickException(f"Thread not found: {identifier}")
+
+
+@click.group("thread")
+def thread_group():
+    """Create, list, and send messages in threads."""
+
+
+@thread_group.command("create")
+@click.argument("channel")
+@click.argument("message_id")
+@click.argument("name")
+@click.pass_context
+def thread_create(ctx, channel, message_id, name):
+    """Create a thread from a message."""
+
+    def action(client):
+        async def _action(client):
+            ch = resolve_channel(client, channel)
+            msg = await ch.fetch_message(int(message_id))
+            thread = await msg.create_thread(name=name)
+            data = {
+                "id": str(thread.id),
+                "name": thread.name,
+                "parent_channel": ch.name,
+                "parent_channel_id": str(ch.id),
+                "message_id": message_id,
+            }
+            output(ctx, data, plain_text=f"Created thread '{thread.name}' (ID: {thread.id}) from message {message_id}")
+        return _action(client)
+
+    run_discord(ctx, action)
+
+
+@thread_group.command("list")
+@click.argument("channel")
+@click.pass_context
+def thread_list(ctx, channel):
+    """List active threads in a channel."""
+
+    def action(client):
+        async def _action(client):
+            ch = resolve_channel(client, channel)
+            threads = []
+            for thread in ch.threads:
+                threads.append({
+                    "id": str(thread.id),
+                    "name": thread.name,
+                    "message_count": thread.message_count,
+                    "member_count": thread.member_count,
+                    "archived": thread.archived,
+                })
+            plain_lines = [
+                f"{t['name']} (ID: {t['id']}, msgs: {t['message_count']}, members: {t['member_count']}){' [archived]' if t['archived'] else ''}"
+                for t in threads
+            ]
+            output(ctx, threads, plain_text="\n".join(plain_lines) if plain_lines else "No active threads.")
+        return _action(client)
+
+    run_discord(ctx, action)
+
+
+@thread_group.command("send")
+@click.argument("thread")
+@click.argument("text")
+@click.pass_context
+def thread_send(ctx, thread, text):
+    """Send a message to a thread."""
+
+    def action(client):
+        async def _action(client):
+            t = resolve_thread(client, thread)
+            msg = await t.send(content=text)
+            data = {
+                "id": str(msg.id),
+                "thread": t.name,
+                "thread_id": str(t.id),
+                "content": msg.content,
+            }
+            output(ctx, data, plain_text=f"Sent message {msg.id} to thread '{t.name}'")
+        return _action(client)
+
+    run_discord(ctx, action)
