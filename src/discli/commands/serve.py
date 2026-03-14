@@ -485,19 +485,35 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── stdin Command Dispatch ─────────────────────────────────────
 
     async def _stdin_reader():
-        """Read JSONL commands from stdin and dispatch."""
-        loop = asyncio.get_event_loop()
-        reader = asyncio.StreamReader()
-        await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
+        """Read JSONL commands from stdin and dispatch.
 
+        Uses a thread for reading because asyncio.connect_read_pipe
+        fails on Windows (ProactorEventLoop) when stdin is a pipe
+        from a parent process (WinError 6: handle is invalid).
+        """
+        import threading
+        from queue import Queue, Empty
+
+        q: Queue[str | None] = Queue()
+
+        def _read_thread():
+            try:
+                for raw in sys.stdin:
+                    q.put(raw.strip())
+            except (OSError, ValueError):
+                pass
+            q.put(None)  # sentinel
+
+        t = threading.Thread(target=_read_thread, daemon=True)
+        t.start()
+
+        loop = asyncio.get_event_loop()
         while True:
             try:
-                line = await reader.readline()
-                if not line:
-                    # stdin closed — shut down
+                line = await loop.run_in_executor(None, q.get)
+                if line is None:
                     await client.close()
                     return
-                line = line.decode().strip()
                 if not line:
                     continue
                 try:
