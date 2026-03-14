@@ -9,6 +9,7 @@ from discli.commands.message import message_group
 from discli.commands.reaction import reaction_group
 from discli.commands.role import role_group
 from discli.commands.server import server_group
+from discli.commands.typing_cmd import typing_cmd
 
 
 @click.group()
@@ -33,3 +34,4 @@ main.add_command(message_group)
 main.add_command(reaction_group)
 main.add_command(role_group)
 main.add_command(server_group)
+main.add_command(typing_cmd)
