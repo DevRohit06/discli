@@ -1,6 +1,7 @@
 import click
 
 from discli.client import run_discord
+from discli.security import audit_log, confirm_destructive, rate_limiter
 from discli.utils import output, resolve_guild
 
 
@@ -86,16 +87,23 @@ def member_info(ctx, server, member):
 @click.argument("server")
 @click.argument("member")
 @click.option("--reason", default=None, help="Reason for kick.")
+@click.option("--triggered-by", default=None, help="User ID who triggered this action (for permission check).")
 @click.pass_context
-def member_kick(ctx, server, member, reason):
+def member_kick(ctx, server, member, reason, triggered_by):
     """Kick a member from the server."""
+    confirm_destructive("member kick", f"{member} from {server}")
 
     def action(client):
         async def _action(client):
+            rate_limiter.wait()
             guild = resolve_guild(client, server)
+            if triggered_by:
+                from discli.security import check_user_permission
+                check_user_permission(guild, int(triggered_by), "kick")
             m = resolve_member(guild, member)
             name = str(m)
             await m.kick(reason=reason)
+            audit_log("member kick", {"server": server, "member": name, "reason": reason}, user=triggered_by or "")
             output(ctx, {"member": name, "kicked": True}, plain_text=f"Kicked {name}")
         return _action(client)
 
@@ -106,16 +114,23 @@ def member_kick(ctx, server, member, reason):
 @click.argument("server")
 @click.argument("member")
 @click.option("--reason", default=None, help="Reason for ban.")
+@click.option("--triggered-by", default=None, help="User ID who triggered this action (for permission check).")
 @click.pass_context
-def member_ban(ctx, server, member, reason):
+def member_ban(ctx, server, member, reason, triggered_by):
     """Ban a member from the server."""
+    confirm_destructive("member ban", f"{member} from {server}")
 
     def action(client):
         async def _action(client):
+            rate_limiter.wait()
             guild = resolve_guild(client, server)
+            if triggered_by:
+                from discli.security import check_user_permission
+                check_user_permission(guild, int(triggered_by), "ban")
             m = resolve_member(guild, member)
             name = str(m)
             await m.ban(reason=reason)
+            audit_log("member ban", {"server": server, "member": name, "reason": reason}, user=triggered_by or "")
             output(ctx, {"member": name, "banned": True}, plain_text=f"Banned {name}")
         return _action(client)
 
@@ -125,13 +140,19 @@ def member_ban(ctx, server, member, reason):
 @member_group.command("unban")
 @click.argument("server")
 @click.argument("member")
+@click.option("--triggered-by", default=None, help="User ID who triggered this action (for permission check).")
 @click.pass_context
-def member_unban(ctx, server, member):
+def member_unban(ctx, server, member, triggered_by):
     """Unban a member from the server."""
+    confirm_destructive("member unban", f"{member} from {server}")
 
     def action(client):
         async def _action(client):
+            rate_limiter.wait()
             guild = resolve_guild(client, server)
+            if triggered_by:
+                from discli.security import check_user_permission
+                check_user_permission(guild, int(triggered_by), "ban")
             bans = [b async for b in guild.bans()]
             target = None
             for ban_entry in bans:
@@ -142,6 +163,7 @@ def member_unban(ctx, server, member):
             if not target:
                 raise click.ClickException(f"Banned user not found: {member}")
             await guild.unban(target)
+            audit_log("member unban", {"server": server, "member": str(target)}, user=triggered_by or "")
             output(ctx, {"member": str(target), "unbanned": True}, plain_text=f"Unbanned {target}")
         return _action(client)
 

@@ -68,12 +68,15 @@ def channel_create(ctx, server, name, channel_type):
 @click.pass_context
 def channel_delete(ctx, channel):
     """Delete a channel."""
+    from discli.security import confirm_destructive, audit_log
+    confirm_destructive("channel delete", channel)
 
     def action(client):
         async def _action(client):
             ch = resolve_channel(client, channel)
             name = ch.name
             await ch.delete()
+            audit_log("channel delete", {"channel": name})
             output(ctx, {"id": str(ch.id), "deleted": True}, plain_text=f"Deleted #{name}")
         return _action(client)
 

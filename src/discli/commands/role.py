@@ -86,6 +86,8 @@ def role_create(ctx, server, name, color, permissions):
 @click.pass_context
 def role_delete(ctx, server, role):
     """Delete a role."""
+    from discli.security import confirm_destructive, audit_log
+    confirm_destructive("role delete", f"{role} in {server}")
 
     def action(client):
         async def _action(client):
@@ -93,6 +95,7 @@ def role_delete(ctx, server, role):
             r = resolve_role(guild, role)
             name = r.name
             await r.delete()
+            audit_log("role delete", {"server": server, "role": name})
             output(ctx, {"name": name, "deleted": True}, plain_text=f"Deleted role {name}")
         return _action(client)
 

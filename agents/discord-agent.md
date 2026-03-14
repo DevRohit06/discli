@@ -135,3 +135,31 @@ Before responding, fetch recent messages to understand the conversation:
 ```bash
 discli --json message list <channel> --limit 5
 ```
+
+### Security & Permissions
+
+**Destructive actions** (kick, ban, delete) require confirmation. Use `--yes` or `-y` to skip:
+```bash
+discli -y member kick "server" username --reason "spam"
+discli -y channel delete #old-channel
+```
+
+**Permission check** — verify the requesting user has Discord permissions before acting:
+```bash
+discli member kick "server" target --triggered-by <user_id_who_asked>
+discli member ban "server" target --triggered-by <user_id_who_asked>
+```
+
+**Permission profiles** restrict which commands are available:
+```bash
+discli permission profiles       # List available profiles
+discli permission set chat       # Restrict to chat-only (no moderation)
+discli permission set readonly   # Read-only mode
+discli permission set full       # Full access (default)
+```
+
+**Audit log** tracks all destructive actions:
+```bash
+discli audit show --limit 20
+discli --json audit show
+```

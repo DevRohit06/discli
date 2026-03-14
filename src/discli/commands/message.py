@@ -152,12 +152,15 @@ def message_edit(ctx, channel, message_id, new_text):
 @click.pass_context
 def message_delete(ctx, channel, message_id):
     """Delete a message."""
+    from discli.security import confirm_destructive, audit_log
+    confirm_destructive("message delete", f"message {message_id} in {channel}")
 
     def action(client):
         async def _action(client):
             ch = resolve_channel(client, channel)
             msg = await ch.fetch_message(int(message_id))
             await msg.delete()
+            audit_log("message delete", {"channel": channel, "message_id": message_id})
             output(ctx, {"id": str(msg.id), "deleted": True}, plain_text=f"Deleted message {msg.id}")
         return _action(client)
 
