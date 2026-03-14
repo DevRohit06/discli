@@ -534,55 +534,21 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             except Exception as e:
                 emit({"event": "error", "message": str(e)})
 
-    async def _dispatch(cmd: dict) -> dict:
-        action = cmd.get("action")
-        if not action:
-            return {"error": "Missing 'action' field"}
+    async def _action_typing_start(cmd: dict) -> dict:
+        _start_typing(cmd["channel_id"])
+        return {"ok": True}
 
-        try:
-            if action == "send":
-                return await _action_send(cmd)
-            elif action == "reply":
-                return await _action_reply(cmd)
-            elif action == "edit":
-                return await _action_edit(cmd)
-            elif action == "delete":
-                return await _action_delete(cmd)
-            elif action == "typing_start":
-                _start_typing(cmd["channel_id"])
-                return {"ok": True}
-            elif action == "typing_stop":
-                _stop_typing(cmd["channel_id"])
-                return {"ok": True}
-            elif action == "presence":
-                await _set_presence(
-                    cmd.get("status", "online"),
-                    cmd.get("activity_type"),
-                    cmd.get("activity_text"),
-                )
-                return {"ok": True}
-            elif action == "reaction_add":
-                return await _action_reaction_add(cmd)
-            elif action == "reaction_remove":
-                return await _action_reaction_remove(cmd)
-            elif action == "stream_start":
-                return await _handle_stream_start(cmd)
-            elif action == "stream_chunk":
-                return await _handle_stream_chunk(cmd)
-            elif action == "stream_end":
-                return await _handle_stream_end(cmd)
-            elif action == "interaction_followup":
-                return await _action_interaction_followup(cmd)
-            elif action == "thread_create":
-                return await _action_thread_create(cmd)
-            elif action == "thread_send":
-                return await _action_thread_send(cmd)
-            elif action == "poll_send":
-                return await _action_poll_send(cmd)
-            else:
-                return {"error": f"Unknown action: {action}"}
-        except Exception as e:
-            return {"error": str(e)}
+    async def _action_typing_stop(cmd: dict) -> dict:
+        _stop_typing(cmd["channel_id"])
+        return {"ok": True}
+
+    async def _action_presence_set(cmd: dict) -> dict:
+        await _set_presence(
+            cmd.get("status", "online"),
+            cmd.get("activity_type"),
+            cmd.get("activity_text"),
+        )
+        return {"ok": True}
 
     # ── Action Handlers ────────────────────────────────────────────
 
@@ -745,6 +711,382 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             kwargs["content"] = content
         msg = await ch.send(**kwargs)
         return {"ok": True, "message_id": str(msg.id)}
+
+    # ── Message Queries ────────────────────────────────────────────
+
+    async def _action_message_list(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        limit = cmd.get("limit", 20)
+        messages = []
+        async for msg in ch.history(limit=limit):
+            messages.append({
+                "id": str(msg.id),
+                "author": str(msg.author),
+                "author_id": str(msg.author.id),
+                "content": msg.content,
+                "timestamp": msg.created_at.isoformat(),
+                "attachments": [
+                    {"filename": a.filename, "url": a.url}
+                    for a in msg.attachments
+                ],
+            })
+        return {"ok": True, "messages": messages}
+
+    async def _action_message_get(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        msg = await ch.fetch_message(int(cmd["message_id"]))
+        return {
+            "ok": True,
+            "id": str(msg.id),
+            "author": str(msg.author),
+            "author_id": str(msg.author.id),
+            "content": msg.content,
+            "timestamp": msg.created_at.isoformat(),
+            "attachments": [
+                {"filename": a.filename, "url": a.url}
+                for a in msg.attachments
+            ],
+            "embeds": [
+                {"title": e.title, "description": e.description}
+                for e in msg.embeds
+            ],
+            "reply_to": str(msg.reference.message_id)
+            if msg.reference
+            else None,
+        }
+
+    async def _action_message_search(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        query = cmd.get("query", "").lower()
+        limit = cmd.get("limit", 100)
+        author_filter = cmd.get("author")
+        results = []
+        async for msg in ch.history(limit=limit):
+            if query and query not in msg.content.lower():
+                continue
+            if author_filter and str(msg.author).lower() != author_filter.lower():
+                continue
+            results.append({
+                "id": str(msg.id),
+                "author": str(msg.author),
+                "content": msg.content,
+                "timestamp": msg.created_at.isoformat(),
+            })
+        return {"ok": True, "messages": results}
+
+    async def _action_message_pin(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        msg = await ch.fetch_message(int(cmd["message_id"]))
+        await msg.pin()
+        return {"ok": True}
+
+    async def _action_message_unpin(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        msg = await ch.fetch_message(int(cmd["message_id"]))
+        await msg.unpin()
+        return {"ok": True}
+
+    # ── Channel & Server Management ────────────────────────────────
+
+    async def _action_channel_list(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        guilds = (
+            [client.get_guild(int(guild_id))] if guild_id else client.guilds
+        )
+        channels = []
+        for guild in guilds:
+            if not guild:
+                continue
+            for ch in guild.channels:
+                if isinstance(ch, (discord.TextChannel, discord.VoiceChannel)):
+                    channels.append({
+                        "id": str(ch.id),
+                        "name": ch.name,
+                        "type": "text"
+                        if isinstance(ch, discord.TextChannel)
+                        else "voice",
+                        "server": guild.name,
+                        "server_id": str(guild.id),
+                    })
+        return {"ok": True, "channels": channels}
+
+    async def _action_channel_create(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        if not guild_id:
+            return {"error": "Missing 'guild_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        name = cmd.get("name")
+        if not name:
+            return {"error": "Missing 'name'"}
+        ch_type = cmd.get("type", "text")
+        if ch_type == "voice":
+            ch = await guild.create_voice_channel(name)
+        elif ch_type == "category":
+            ch = await guild.create_category(name)
+        else:
+            ch = await guild.create_text_channel(name)
+        return {"ok": True, "channel_id": str(ch.id), "name": ch.name}
+
+    async def _action_channel_info(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        return {
+            "ok": True,
+            "id": str(ch.id),
+            "name": ch.name,
+            "type": str(ch.type),
+            "server": ch.guild.name if ch.guild else None,
+            "server_id": str(ch.guild.id) if ch.guild else None,
+            "topic": getattr(ch, "topic", None),
+            "created_at": ch.created_at.isoformat(),
+        }
+
+    def _action_server_list(cmd: dict) -> dict:
+        servers = []
+        for guild in client.guilds:
+            servers.append({
+                "id": str(guild.id),
+                "name": guild.name,
+                "member_count": guild.member_count,
+            })
+        return {"ok": True, "servers": servers}
+
+    async def _action_server_info(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        if not guild_id:
+            return {"error": "Missing 'guild_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        return {
+            "ok": True,
+            "id": str(guild.id),
+            "name": guild.name,
+            "owner": str(guild.owner) if guild.owner else None,
+            "member_count": guild.member_count,
+            "channel_count": len(guild.channels),
+            "role_count": len(guild.roles),
+            "created_at": guild.created_at.isoformat(),
+        }
+
+    # ── DM ─────────────────────────────────────────────────────────
+
+    async def _action_dm_send(cmd: dict) -> dict:
+        user_id = cmd.get("user_id")
+        if not user_id:
+            return {"error": "Missing 'user_id'"}
+        user = client.get_user(int(user_id))
+        if not user:
+            try:
+                user = await client.fetch_user(int(user_id))
+            except discord.NotFound:
+                return {"error": f"User not found: {user_id}"}
+        dm = await user.create_dm()
+        content = cmd.get("content", "")
+        msg = await dm.send(content=content)
+        return {
+            "ok": True,
+            "message_id": str(msg.id),
+            "recipient": str(user),
+        }
+
+    # ── Members & Roles ────────────────────────────────────────────
+
+    async def _action_member_list(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        if not guild_id:
+            return {"error": "Missing 'guild_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        limit = cmd.get("limit", 50)
+        members = []
+        for m in guild.members[:limit]:
+            members.append({
+                "id": str(m.id),
+                "name": str(m),
+                "nick": m.nick,
+                "bot": m.bot,
+            })
+        return {"ok": True, "members": members}
+
+    async def _action_member_info(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        member_id = cmd.get("member_id")
+        if not guild_id or not member_id:
+            return {"error": "Missing 'guild_id' or 'member_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        member = guild.get_member(int(member_id))
+        if not member:
+            return {"error": f"Member not found: {member_id}"}
+        return {
+            "ok": True,
+            "id": str(member.id),
+            "name": str(member),
+            "nick": member.nick,
+            "bot": member.bot,
+            "roles": [
+                {"id": str(r.id), "name": r.name}
+                for r in member.roles
+                if r.name != "@everyone"
+            ],
+            "joined_at": member.joined_at.isoformat()
+            if member.joined_at
+            else None,
+        }
+
+    async def _action_role_list(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        if not guild_id:
+            return {"error": "Missing 'guild_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        roles = []
+        for r in guild.roles:
+            if r.name == "@everyone":
+                continue
+            roles.append({
+                "id": str(r.id),
+                "name": r.name,
+                "color": str(r.color),
+                "members": len(r.members),
+            })
+        return {"ok": True, "roles": roles}
+
+    async def _action_role_assign(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        member_id = cmd.get("member_id")
+        role_id = cmd.get("role_id")
+        if not all([guild_id, member_id, role_id]):
+            return {"error": "Missing 'guild_id', 'member_id', or 'role_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        member = guild.get_member(int(member_id))
+        if not member:
+            return {"error": f"Member not found: {member_id}"}
+        role = guild.get_role(int(role_id))
+        if not role:
+            return {"error": f"Role not found: {role_id}"}
+        await member.add_roles(role)
+        return {"ok": True, "member": str(member), "role": role.name}
+
+    async def _action_role_remove(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        member_id = cmd.get("member_id")
+        role_id = cmd.get("role_id")
+        if not all([guild_id, member_id, role_id]):
+            return {"error": "Missing 'guild_id', 'member_id', or 'role_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        member = guild.get_member(int(member_id))
+        if not member:
+            return {"error": f"Member not found: {member_id}"}
+        role = guild.get_role(int(role_id))
+        if not role:
+            return {"error": f"Role not found: {role_id}"}
+        await member.remove_roles(role)
+        return {"ok": True, "member": str(member), "role": role.name}
+
+    # ── Thread Queries ─────────────────────────────────────────────
+
+    async def _action_thread_list(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        threads = []
+        for t in ch.threads:
+            threads.append({
+                "id": str(t.id),
+                "name": t.name,
+                "message_count": t.message_count,
+                "member_count": t.member_count,
+                "archived": t.archived,
+            })
+        return {"ok": True, "threads": threads}
+
+    # ── Action Dispatch ────────────────────────────────────────────
+
+    _actions: dict[str, callable] = {
+        # Messaging
+        "send": _action_send,
+        "reply": _action_reply,
+        "edit": _action_edit,
+        "delete": _action_delete,
+        "message_list": _action_message_list,
+        "message_get": _action_message_get,
+        "message_search": _action_message_search,
+        "message_pin": _action_message_pin,
+        "message_unpin": _action_message_unpin,
+        # Streaming
+        "stream_start": _handle_stream_start,
+        "stream_chunk": _handle_stream_chunk,
+        "stream_end": _handle_stream_end,
+        # Interactions
+        "interaction_followup": _action_interaction_followup,
+        # Typing & presence
+        "typing_start": _action_typing_start,
+        "typing_stop": _action_typing_stop,
+        "presence": _action_presence_set,
+        # Reactions
+        "reaction_add": _action_reaction_add,
+        "reaction_remove": _action_reaction_remove,
+        # Threads
+        "thread_create": _action_thread_create,
+        "thread_send": _action_thread_send,
+        "thread_list": _action_thread_list,
+        # Polls
+        "poll_send": _action_poll_send,
+        # Channels
+        "channel_list": _action_channel_list,
+        "channel_create": _action_channel_create,
+        "channel_info": _action_channel_info,
+        # DMs
+        "dm_send": _action_dm_send,
+        # Members & roles
+        "member_list": _action_member_list,
+        "member_info": _action_member_info,
+        "role_list": _action_role_list,
+        "role_assign": _action_role_assign,
+        "role_remove": _action_role_remove,
+        # Server
+        "server_list": _action_server_list,
+        "server_info": _action_server_info,
+    }
+
+    async def _dispatch(cmd: dict) -> dict:
+        action = cmd.get("action")
+        if not action:
+            return {"error": "Missing 'action' field"}
+
+        handler = _actions.get(action)
+        if not handler:
+            return {"error": f"Unknown action: {action}"}
+
+        try:
+            result = handler(cmd)
+            if hasattr(result, "__await__"):
+                return await result
+            return result
+        except Exception as e:
+            return {"error": str(e)}
 
     # ── Run ─────────────────────────────────────────────────────────
 
