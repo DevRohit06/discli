@@ -283,8 +283,15 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
                         "interaction_token": itk,
                     })
 
-        await tree.sync()
-        emit({"event": "slash_commands_synced", "count": len(slash_defs)})
+        # Sync per guild for instant registration (global sync can take hours)
+        synced_guilds = 0
+        for guild in client.guilds:
+            try:
+                await tree.sync(guild=guild)
+                synced_guilds += 1
+            except Exception as e:
+                emit({"event": "error", "message": f"Failed to sync commands to {guild.name}: {e}"})
+        emit({"event": "slash_commands_synced", "count": len(slash_defs), "guilds": synced_guilds})
 
     # ── Presence ────────────────────────────────────────────────────
 
