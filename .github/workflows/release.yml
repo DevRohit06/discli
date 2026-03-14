@@ -65,9 +65,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF#refs/tags/}"
-          gh release create "$tag" dist/* \
-            --title "$tag" \
-            --generate-notes
+          if gh release view "$tag" &>/dev/null; then
+            echo "Release $tag already exists, uploading assets..."
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* \
+              --title "$tag" \
+              --generate-notes
+          fi
 
   pypi-publish:
     needs: build
