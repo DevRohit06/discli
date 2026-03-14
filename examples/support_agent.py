@@ -45,7 +45,7 @@ def reply(channel_id: str, message_id: str, text: str):
 def main():
     print("Starting support agent...")
     process = subprocess.Popen(
-        ["discli", "listen", "--json", "--events", "messages"],
+        ["discli", "--json", "listen", "--events", "messages"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

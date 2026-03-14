@@ -30,7 +30,7 @@ def main():
     violations: dict[str, int] = defaultdict(int)
 
     process = subprocess.Popen(
-        ["discli", "listen", "--json", "--events", "messages"],
+        ["discli", "--json", "listen", "--events", "messages"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

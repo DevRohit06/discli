@@ -40,7 +40,7 @@ def main():
     active_threads: set[str] = set()
 
     process = subprocess.Popen(
-        ["discli", "listen", "--json", "--events", "messages"],
+        ["discli", "--json", "listen", "--events", "messages"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
