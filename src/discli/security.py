@@ -160,11 +160,41 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
-def check_user_permission(guild, user_id: int, required_permission: str) -> None:
-    """Check if the Discord user who triggered the action has the required permission."""
+async def check_user_permission(guild, user_id: int, required_permission: str) -> None:
+    """Check if the Discord user who triggered the action has the required permission.
+
+    Handles edge cases:
+    - Server owner always has all permissions
+    - Administrator permission grants all permissions
+    - Falls back to fetching member if not in cache
+    - Warns instead of failing if member can't be resolved
+    """
     member = guild.get_member(user_id)
+
+    # Try fetching if not in cache
     if member is None:
-        raise click.ClickException(f"Member {user_id} not found in server.")
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception:
+            # Can't verify — warn but don't block
+            click.echo(
+                f"Warning: Could not verify permissions for user {user_id}. Proceeding anyway.",
+                err=True,
+            )
+            audit_log("permission_check", {
+                "user_id": str(user_id),
+                "permission": required_permission,
+                "result": "skipped_not_found",
+            })
+            return
+
+    # Server owner has all permissions
+    if guild.owner_id == user_id:
+        return
+
+    # Administrator has all permissions
+    if member.guild_permissions.administrator:
+        return
 
     perm_map = {
         "kick": "kick_members",
@@ -176,6 +206,12 @@ def check_user_permission(guild, user_id: int, required_permission: str) -> None
 
     perm_attr = perm_map.get(required_permission)
     if perm_attr and not getattr(member.guild_permissions, perm_attr, False):
+        audit_log("permission_check", {
+            "user_id": str(user_id),
+            "user": str(member),
+            "permission": required_permission,
+            "result": "denied",
+        })
         raise click.ClickException(
             f"User {member} does not have '{required_permission}' permission in {guild.name}."
         )

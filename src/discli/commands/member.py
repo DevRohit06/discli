@@ -99,7 +99,7 @@ def member_kick(ctx, server, member, reason, triggered_by):
             guild = resolve_guild(client, server)
             if triggered_by:
                 from discli.security import check_user_permission
-                check_user_permission(guild, int(triggered_by), "kick")
+                await check_user_permission(guild, int(triggered_by), "kick")
             m = resolve_member(guild, member)
             name = str(m)
             await m.kick(reason=reason)
@@ -126,7 +126,7 @@ def member_ban(ctx, server, member, reason, triggered_by):
             guild = resolve_guild(client, server)
             if triggered_by:
                 from discli.security import check_user_permission
-                check_user_permission(guild, int(triggered_by), "ban")
+                await check_user_permission(guild, int(triggered_by), "ban")
             m = resolve_member(guild, member)
             name = str(m)
             await m.ban(reason=reason)
@@ -152,7 +152,7 @@ def member_unban(ctx, server, member, triggered_by):
             guild = resolve_guild(client, server)
             if triggered_by:
                 from discli.security import check_user_permission
-                check_user_permission(guild, int(triggered_by), "ban")
+                await check_user_permission(guild, int(triggered_by), "ban")
             bans = [b async for b in guild.bans()]
             target = None
             for ban_entry in bans:
