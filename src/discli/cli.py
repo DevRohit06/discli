@@ -12,14 +12,18 @@ from discli.commands.role import role_group
 from discli.commands.server import server_group
 from discli.commands.thread import thread_group
 from discli.commands.typing_cmd import typing_cmd
+from discli.commands.serve import serve_cmd
 
 
 @click.group()
 @click.option("--token", envvar="DISCORD_BOT_TOKEN", default=None, help="Discord bot token.")
 @click.option("--json", "use_json", is_flag=True, default=False, help="Output as JSON.")
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompts for destructive actions.")
+@click.option("--profile", envvar="DISCLI_PROFILE", default=None,
+              type=click.Choice(["full", "chat", "readonly", "moderation"]),
+              help="Override permission profile for this invocation.")
 @click.pass_context
-def main(ctx, token, use_json, yes):
+def main(ctx, token, use_json, yes, profile):
     """discli — Discord CLI for AI agents."""
     ctx.ensure_object(dict)
     if token is None:
@@ -28,15 +32,7 @@ def main(ctx, token, use_json, yes):
     ctx.obj["token"] = token
     ctx.obj["use_json"] = use_json
     ctx.obj["yes"] = yes
-
-    # Check permission profile
-    from discli.security import is_command_allowed
-    invoked = ctx.invoked_subcommand
-    if invoked and not is_command_allowed(invoked):
-        raise click.ClickException(
-            f"Command '{invoked}' is denied by your permission profile. "
-            "Run 'discli permission show' to see active profile."
-        )
+    ctx.obj["profile"] = profile
 
 
 main.add_command(channel_group)
@@ -50,6 +46,7 @@ main.add_command(role_group)
 main.add_command(server_group)
 main.add_command(thread_group)
 main.add_command(typing_cmd)
+main.add_command(serve_cmd)
 
 
 # Permission management commands

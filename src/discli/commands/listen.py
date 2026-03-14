@@ -14,6 +14,13 @@ import discord
 def listen_cmd(ctx, server, channel, events, ignore_bots):
     """Listen for real-time Discord events. Ctrl+C to stop."""
     from discli.client import resolve_token
+    from discli.security import is_command_allowed
+
+    profile = ctx.obj.get("profile")
+    if not is_command_allowed("listen", profile_override=profile):
+        raise click.ClickException(
+            "Command 'listen' is denied by your permission profile."
+        )
 
     token = resolve_token(ctx.obj.get("token"), {})
     use_json = ctx.obj.get("use_json", False)

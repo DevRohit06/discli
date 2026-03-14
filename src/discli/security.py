@@ -30,7 +30,7 @@ DEFAULT_PROFILES = {
     },
     "chat": {
         "description": "Messages, reactions, threads, typing only",
-        "allowed": ["message", "reaction", "thread", "typing", "dm", "listen", "config", "server"],
+        "allowed": ["message", "reaction", "thread", "typing", "dm", "listen", "serve", "config", "server"],
         "denied": ["member kick", "member ban", "member unban", "channel delete", "role delete", "role create", "channel create"],
     },
     "readonly": {
@@ -76,9 +76,12 @@ def set_active_profile(profile_name: str) -> None:
     PERMISSIONS_PATH.write_text(json.dumps(data, indent=2))
 
 
-def is_command_allowed(command_path: str) -> bool:
-    """Check if a command is allowed by the active profile."""
-    profile = get_active_profile()
+def is_command_allowed(command_path: str, profile_override: str | None = None) -> bool:
+    """Check if a command is allowed by the active (or overridden) profile."""
+    if profile_override and profile_override in DEFAULT_PROFILES:
+        profile = DEFAULT_PROFILES[profile_override]
+    else:
+        profile = get_active_profile()
     allowed = profile.get("allowed", ["*"])
     denied = profile.get("denied", [])
 
