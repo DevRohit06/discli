@@ -106,7 +106,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         asyncio.create_task(_stdin_reader())
         # Sync slash commands (Discord API call, can take seconds)
         if slash_defs:
-            await _register_slash_commands()
+            try:
+                await _register_slash_commands()
+            except Exception as e:
+                emit({"event": "error", "message": f"Slash command registration failed: {e}"})
 
     @client.event
     async def on_message(message):
@@ -239,54 +242,60 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── Slash Commands ──────────────────────────────────────────────
 
     async def _register_slash_commands():
+        import inspect
+
+        _type_map = {"string": str, "integer": int, "number": float, "boolean": bool}
+
+        def _make_slash_callback(param_defs):
+            """Create a callback whose __signature__ exposes params to discord.py."""
+            async def _callback(interaction: discord.Interaction, **kwargs):
+                cmd_name = interaction.command.name
+                itk = str(uuid.uuid4())
+                interactions[itk] = interaction
+                await interaction.response.defer(thinking=True)
+                emit({
+                    "event": "slash_command",
+                    "command": cmd_name,
+                    "args": {k: str(v) for k, v in kwargs.items() if v is not None},
+                    "channel_id": str(interaction.channel_id),
+                    "user": str(interaction.user),
+                    "user_id": str(interaction.user.id),
+                    "guild_id": str(interaction.guild_id) if interaction.guild_id else None,
+                    "interaction_token": itk,
+                })
+
+            # Build a proper signature so discord.py registers slash options
+            sig_params = [
+                inspect.Parameter("interaction", inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                                  annotation=discord.Interaction),
+            ]
+            for p in param_defs:
+                annotation = _type_map.get(p.get("type", "string"), str)
+                required = p.get("required", True)
+                default = inspect.Parameter.empty if required else None
+                sig_params.append(
+                    inspect.Parameter(p["name"], inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                                      annotation=annotation, default=default),
+                )
+            _callback.__signature__ = inspect.Signature(sig_params)
+            return _callback
+
         for cmd_def in slash_defs:
             name = cmd_def["name"]
             desc = cmd_def.get("description", name)
             params = cmd_def.get("params", [])
 
+            callback = _make_slash_callback(params)
             if params:
-                # Command with a single string parameter
-                param = params[0]
+                descriptions = {p["name"]: p.get("description", p["name"]) for p in params}
+                callback = app_commands.describe(**descriptions)(callback)
+            tree.command(name=name, description=desc)(callback)
 
-                @tree.command(name=name, description=desc)
-                @app_commands.describe(**{param["name"]: param.get("description", param["name"])})
-                async def slash_handler(interaction: discord.Interaction, **kwargs):
-                    cmd_name = interaction.command.name
-                    itk = str(uuid.uuid4())
-                    interactions[itk] = interaction
-                    await interaction.response.defer(thinking=True)
-                    emit({
-                        "event": "slash_command",
-                        "command": cmd_name,
-                        "args": {k: str(v) for k, v in kwargs.items()},
-                        "channel_id": str(interaction.channel_id),
-                        "user": str(interaction.user),
-                        "user_id": str(interaction.user.id),
-                        "guild_id": str(interaction.guild_id) if interaction.guild_id else None,
-                        "interaction_token": itk,
-                    })
-            else:
-                @tree.command(name=name, description=desc)
-                async def slash_handler_no_args(interaction: discord.Interaction):
-                    cmd_name = interaction.command.name
-                    itk = str(uuid.uuid4())
-                    interactions[itk] = interaction
-                    await interaction.response.defer(thinking=True)
-                    emit({
-                        "event": "slash_command",
-                        "command": cmd_name,
-                        "args": {},
-                        "channel_id": str(interaction.channel_id),
-                        "user": str(interaction.user),
-                        "user_id": str(interaction.user.id),
-                        "guild_id": str(interaction.guild_id) if interaction.guild_id else None,
-                        "interaction_token": itk,
-                    })
-
-        # Sync per guild for instant registration (global sync can take hours)
+        # Copy global commands to each guild for instant availability, then sync
         synced_guilds = 0
         for guild in client.guilds:
             try:
+                tree.copy_global_to(guild=guild)
                 await tree.sync(guild=guild)
                 synced_guilds += 1
             except Exception as e:
