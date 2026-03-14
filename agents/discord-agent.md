@@ -86,6 +86,15 @@ discli listen --events messages,reactions,members,edits,deletes
 discli listen --server "server name" --channel "#channel"
 ```
 
+### Persistent Bot (serve)
+`discli serve` stays connected and uses stdin/stdout JSONL for bidirectional communication.
+```bash
+discli serve --slash-commands commands.json --status online
+```
+**stdin commands:** `send`, `reply`, `edit`, `delete`, `typing_start`, `typing_stop`, `presence`, `reaction_add`, `reaction_remove`, `stream_start`, `stream_chunk`, `stream_end`, `interaction_followup`
+
+**stdout events:** `ready`, `message`, `slash_command`, `message_edit`, `message_delete`, `reaction_add`, `reaction_remove`, `member_join`, `member_remove`, `response`, `error`
+
 ## Important Rules
 
 ### JSON Output

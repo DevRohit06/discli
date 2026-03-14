@@ -41,15 +41,13 @@ graph TD
 
 ```mermaid
 graph LR
-    A[discli listen --json] --> B[Events\nJSONL stream]
-    B --> C[AI Agent\ne.g. Claude]
-    C --> D[discli message reply]
-    D --> E[Discord]
-    A --> E
+    A[discli serve] -->|stdout JSONL| B[AI Agent\ne.g. Claude]
+    B -->|stdin JSONL| A
+    A <-->|persistent| C[Discord Bot API]
 
     style A fill:#5865F2,color:#fff
-    style C fill:#D97706,color:#fff
-    style E fill:#5865F2,color:#fff
+    style B fill:#D97706,color:#fff
+    style C fill:#5865F2,color:#fff
 ```
 
 ```mermaid
@@ -229,6 +227,49 @@ discli --json listen --events messages
 
 Supported event types: `messages`, `reactions`, `members`, `edits`, `deletes`
 
+### Persistent Bot (serve)
+
+`discli serve` keeps a persistent connection and communicates via stdin/stdout JSONL — ideal for building full Discord bots.
+
+```bash
+# Start with slash commands and presence
+discli serve --slash-commands commands.json --status online --activity playing --activity-text "Helping"
+
+# Filter by server
+discli serve --server "My Server"
+```
+
+**Events (stdout):**
+```json
+{"event": "ready", "bot_id": "123", "bot_name": "MyBot#1234"}
+{"event": "message", "channel_id": "456", "author": "alice", "content": "hello", "mentions_bot": true, ...}
+{"event": "slash_command", "command": "paw", "args": {"message": "hi"}, "interaction_token": "abc123", ...}
+```
+
+**Commands (stdin):**
+```json
+{"action": "send", "channel_id": "456", "content": "Hello!", "req_id": "1"}
+{"action": "reply", "channel_id": "456", "message_id": "789", "content": "Hi!", "req_id": "2"}
+{"action": "typing_start", "channel_id": "456"}
+{"action": "typing_stop", "channel_id": "456"}
+{"action": "presence", "status": "idle", "activity_type": "watching", "activity_text": "the logs"}
+```
+
+**Streaming edits** (bot response builds in real-time, edited every 1.5s):
+```json
+{"action": "stream_start", "channel_id": "456", "reply_to": "789"}
+{"action": "stream_chunk", "stream_id": "s1", "content": "new tokens..."}
+{"action": "stream_end", "stream_id": "s1"}
+```
+
+**Slash commands** are defined in a JSON file:
+```json
+[
+  {"name": "paw", "description": "Talk to the bot", "params": [{"name": "message", "type": "string"}]},
+  {"name": "new", "description": "Start a new session"}
+]
+```
+
 ## Security & Permissions
 
 ### Confirmation Prompts
@@ -251,11 +292,15 @@ Restrict which commands an agent can use:
 # List available profiles
 discli permission profiles
 
-# Set a profile
+# Set a profile (persisted)
 discli permission set chat        # Messages, reactions, threads only, no moderation
 discli permission set readonly    # Can only read, no sending or deleting
 discli permission set moderation  # Full access including kick/ban
 discli permission set full        # Everything (default)
+
+# Override per invocation (not persisted)
+discli --profile chat message send #general "hello"
+DISCLI_PROFILE=readonly discli message list #general
 ```
 
 | Profile | Can Send | Can Delete | Can Kick/Ban | Can Manage Channels |
@@ -334,6 +379,7 @@ Ready-to-run examples in the [`examples/`](examples/) directory:
 
 | Example | Description |
 |---------|-------------|
+| [`serve_bot.py`](examples/serve_bot.py) | Full bot using `discli serve` with streaming responses and slash commands |
 | [`claude_agent.py`](examples/claude_agent.py) | AI support agent powered by Claude Agent SDK with persistent session |
 | [`support_agent.py`](examples/support_agent.py) | Keyword-based support bot that replies to @mentions |
 | [`thread_support_agent.py`](examples/thread_support_agent.py) | Creates a thread per support request and continues conversations inside |
@@ -379,7 +425,7 @@ discli/
 │   ├── config.py        # Token storage (~/.discli/config.json)
 │   ├── security.py      # Permissions, audit logging, rate limiting
 │   ├── utils.py         # Output formatting, resolvers
-│   └── commands/        # Command groups (message, channel, role, etc.)
+│   └── commands/        # Command groups (message, channel, serve, etc.)
 ├── agents/
 │   └── discord-agent.md # Full command reference for AI agents
 ├── examples/            # Ready-to-run agent examples
