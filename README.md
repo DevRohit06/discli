@@ -48,10 +48,23 @@ Every command supports `--json` for machine-readable output.
 discli message send #general "Hello world!"
 discli message send #general "Check this out" --embed-title "News" --embed-desc "Big update"
 discli message list #general --limit 20
+discli message list #general --after 2026-03-01 --before 2026-03-14
 discli message get #general 123456789
 discli message reply #general 123456789 "Thanks for your question!"
 discli message edit #general 123456789 "Updated text"
 discli message delete #general 123456789
+```
+
+### Search & History
+
+```bash
+# Search messages by content
+discli message search #general "bug report" --limit 100
+discli message search #general "help" --author alice --after 2026-03-01
+
+# Deep history backfill
+discli message history #general --days 7
+discli message history #general --hours 24 --limit 500
 ```
 
 ### Direct Messages
@@ -138,10 +151,82 @@ discli listen --events messages,reactions
 discli listen --include-bots
 
 # JSON output for piping to an agent
-discli listen --json --events messages
+discli --json listen --events messages
 ```
 
 Supported event types: `messages`, `reactions`, `members`, `edits`, `deletes`
+
+## Security & Permissions
+
+### Confirmation Prompts
+
+Destructive actions (kick, ban, delete) require confirmation by default:
+
+```bash
+$ discli member kick "My Server" spammer
+⚠ Destructive action: member kick (spammer from My Server). Continue? [y/N]
+
+# Skip with --yes for automation
+$ discli -y member kick "My Server" spammer --reason "Spam"
+```
+
+### Permission Profiles
+
+Restrict which commands an agent can use:
+
+```bash
+# List available profiles
+discli permission profiles
+
+# Set a profile
+discli permission set chat        # Messages, reactions, threads only — no moderation
+discli permission set readonly    # Can only read — no sending or deleting
+discli permission set moderation  # Full access including kick/ban
+discli permission set full        # Everything (default)
+```
+
+| Profile | Can Send | Can Delete | Can Kick/Ban | Can Manage Channels |
+|---------|----------|------------|--------------|---------------------|
+| `full` | Yes | Yes | Yes | Yes |
+| `moderation` | Yes | Yes | Yes | Yes |
+| `chat` | Yes | No | No | No |
+| `readonly` | No | No | No | No |
+
+### User Permission Checking
+
+Verify the Discord user who triggered an action actually has the required permissions:
+
+```bash
+discli member kick "My Server" target --triggered-by 123456789
+```
+
+This checks that user `123456789` has `kick_members` permission in the server. Server owners and administrators always pass. If the user can't be found in cache, it fetches from the API. If that also fails, it warns but doesn't block.
+
+### Audit Log
+
+Every destructive action is logged to `~/.discli/audit.log`:
+
+```bash
+# View recent actions
+discli audit show --limit 20
+
+# JSON output
+discli --json audit show
+
+# Clear the log
+discli audit clear
+```
+
+Example output:
+```
+[2026-03-14 12:30:00] member kick ok (by 123456789)
+[2026-03-14 12:31:00] channel delete ok
+[2026-03-14 12:32:00] permission_check denied
+```
+
+### Rate Limiting
+
+Built-in rate limiter (5 calls per 5 seconds) on destructive actions to prevent Discord API bans. If the limit is hit, discli waits automatically.
 
 ## Resolving Identifiers
 
@@ -158,21 +243,23 @@ All commands accept both **IDs** and **names**:
 
 ## JSON Output
 
-Add `--json` to any command for machine-readable output:
+Add `--json` **before the subcommand** for machine-readable output:
 
 ```bash
-$ discli message list #general --limit 1 --json
+$ discli --json message list #general --limit 1
 [
   {
     "id": "123456789",
     "author": "alice",
     "content": "Hello!",
-    "timestamp": "2026-03-14T10:32:00+00:00"
+    "timestamp": "2026-03-14T10:32:00+00:00",
+    "attachments": [],
+    "embeds": []
   }
 ]
 
-$ discli listen --json
-{"event": "message", "server": "My Server", "channel": "general", "channel_id": "111", "author": "alice", "author_id": "222", "content": "hello", "message_id": "333", "mentions_bot": false, "attachments": [], ...}
+$ discli --json listen --events messages
+{"event": "message", "server": "My Server", "channel": "general", "channel_id": "111", "author": "alice", "author_id": "222", "content": "hello", "message_id": "333", "mentions_bot": false, "attachments": []}
 ```
 
 ## Examples
@@ -221,9 +308,10 @@ done
 ```
 discli/
 ├── src/discli/          # CLI source code
-│   ├── cli.py           # Root click group
+│   ├── cli.py           # Root click group + permission/audit commands
 │   ├── client.py        # Async discord.py wrapper
-│   ├── config.py        # Token storage
+│   ├── config.py        # Token storage (~/.discli/config.json)
+│   ├── security.py      # Permissions, audit logging, rate limiting
 │   ├── utils.py         # Output formatting, resolvers
 │   └── commands/        # Command groups (message, channel, role, etc.)
 ├── agents/              # Agent instruction files
