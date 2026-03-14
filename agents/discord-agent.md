@@ -110,6 +110,14 @@ discli reaction add <channel> $MSG 2️⃣ && \
 discli reaction add <channel> $MSG 3️⃣
 ```
 
+### One Thing at a Time
+Many actions depend on IDs returned by previous actions. NEVER run multiple independent tool calls in parallel. Always run them sequentially. For example:
+- First send a message → get its ID → then add reactions to that ID
+- First create a thread → get its ID → then send a message in that thread
+- First create a channel → get its ID → then send a message in that channel
+
+If you try to do these in parallel, the dependent calls will fail because the ID doesn't exist yet.
+
 ### Replying
 Always reply to the specific message that triggered you using `discli message reply`, not `discli message send`. This keeps the conversation threaded.
 
