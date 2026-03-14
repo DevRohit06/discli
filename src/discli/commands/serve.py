@@ -92,19 +92,21 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     @client.event
     async def on_ready():
-        # Register slash commands
-        if slash_defs:
-            await _register_slash_commands()
-        # Set presence
-        await _set_presence(status, activity, activity_text)
-        # Start stdin reader
-        asyncio.create_task(_stdin_reader())
-
+        # Emit ready as soon as the gateway connection is established.
+        # This follows Discord's standard: on_ready means connected,
+        # slash command sync is a separate (slow) API call.
         emit({
             "event": "ready",
             "bot_id": str(client.user.id),
             "bot_name": str(client.user),
         })
+        # Set presence
+        await _set_presence(status, activity, activity_text)
+        # Start stdin reader
+        asyncio.create_task(_stdin_reader())
+        # Sync slash commands (Discord API call, can take seconds)
+        if slash_defs:
+            await _register_slash_commands()
 
     @client.event
     async def on_message(message):
