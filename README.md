@@ -171,27 +171,38 @@ $ discli listen --json
 {"event": "message", "server": "My Server", "channel": "general", "channel_id": "111", "author": "alice", "author_id": "222", "content": "hello", "message_id": "333", "mentions_bot": false, "attachments": [], ...}
 ```
 
-## Building an AI Agent
+## Examples
 
-A basic agent loop using `discli`:
+Ready-to-run examples in the [`examples/`](examples/) directory:
+
+| Example | Description |
+|---------|-------------|
+| [`claude_agent.py`](examples/claude_agent.py) | AI support agent powered by Claude Agent SDK — Claude uses discli as a tool to read and respond on Discord |
+| [`support_agent.py`](examples/support_agent.py) | Keyword-based support bot that replies to @mentions |
+| [`thread_support_agent.py`](examples/thread_support_agent.py) | Creates a thread per support request and continues conversations inside |
+| [`moderation_bot.py`](examples/moderation_bot.py) | Watches for banned words, warns users, kicks after repeated violations |
+| [`channel_logger.sh`](examples/channel_logger.sh) | Logs all messages from a channel to a JSONL file |
+| [`reaction_poll.sh`](examples/reaction_poll.sh) | Creates a poll with emoji reactions |
+
+### Quick start — Claude Agent
 
 ```bash
-# 1. Listen for messages mentioning the bot
+pip install discord-cli-agent claude-agent-sdk
+export ANTHROPIC_API_KEY=your-key
+discli config set token YOUR_BOT_TOKEN
+python examples/claude_agent.py
+```
+
+### Quick start — Bash agent loop
+
+```bash
 discli listen --json --events messages | while read -r event; do
   mentions_bot=$(echo "$event" | jq -r '.mentions_bot')
   if [ "$mentions_bot" = "true" ]; then
     channel_id=$(echo "$event" | jq -r '.channel_id')
     message_id=$(echo "$event" | jq -r '.message_id')
-    content=$(echo "$event" | jq -r '.content')
-
-    # 2. Show typing while thinking
     discli typing "$channel_id" --duration 3 &
-
-    # 3. Generate response (your AI here)
-    response="Got your message: $content"
-
-    # 4. Reply to the message
-    discli message reply "$channel_id" "$message_id" "$response"
+    discli message reply "$channel_id" "$message_id" "Hello! How can I help?"
   fi
 done
 ```
