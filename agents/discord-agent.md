@@ -10,9 +10,12 @@ discli message send <channel> "text"
 discli message send <channel> "text" --embed-title "Title" --embed-desc "Description"
 discli message reply <channel> <message_id> "text"
 discli message get <channel> <message_id>
-discli message list <channel> --limit 10
+discli message list <channel> --limit 10 [--before YYYY-MM-DD] [--after YYYY-MM-DD]
 discli message edit <channel> <message_id> "new text"
 discli message delete <channel> <message_id>
+discli message search <channel> "query" --limit 100 [--author name] [--before YYYY-MM-DD] [--after YYYY-MM-DD]
+discli message history <channel> --days 7
+discli message history <channel> --hours 24 --limit 500
 ```
 
 ### Reactions
