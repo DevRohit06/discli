@@ -5,6 +5,12 @@ A command-line interface for Discord, built for AI agents and humans. Manage ser
 ## Install
 
 ```bash
+pip install discord-cli-agent
+```
+
+For development:
+
+```bash
 pip install -e .
 ```
 
