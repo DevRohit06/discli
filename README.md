@@ -1,0 +1,207 @@
+# discli
+
+A command-line interface for Discord, built for AI agents and humans. Manage servers, send messages, react, handle DMs, threads, and monitor events — all from the terminal.
+
+## Install
+
+```bash
+pip install -e .
+```
+
+Requires Python 3.10+.
+
+## Setup
+
+1. Create a bot at [Discord Developer Portal](https://discord.com/developers/applications)
+2. Enable **all privileged intents** (Presence, Server Members, Message Content)
+3. Add the bot to your server with appropriate permissions
+4. Configure your token:
+
+```bash
+# Option A: Save to config
+discli config set token YOUR_BOT_TOKEN
+
+# Option B: Environment variable
+export DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN
+
+# Option C: Pass directly
+discli --token YOUR_BOT_TOKEN server list
+```
+
+## Usage
+
+Every command supports `--json` for machine-readable output.
+
+### Messages
+
+```bash
+discli message send #general "Hello world!"
+discli message send #general "Check this out" --embed-title "News" --embed-desc "Big update"
+discli message list #general --limit 20
+discli message get #general 123456789
+discli message reply #general 123456789 "Thanks for your question!"
+discli message edit #general 123456789 "Updated text"
+discli message delete #general 123456789
+```
+
+### Direct Messages
+
+```bash
+discli dm send alice "Hey, need help?"
+discli dm send 123456789 "Sent by user ID"
+discli dm list alice --limit 10
+```
+
+### Reactions
+
+```bash
+discli reaction add #general 123456789 👍
+discli reaction remove #general 123456789 👍
+discli reaction list #general 123456789
+```
+
+### Channels
+
+```bash
+discli channel list --server "My Server"
+discli channel create "My Server" new-channel --type text
+discli channel create "My Server" voice-room --type voice
+discli channel info #general
+discli channel delete #old-channel
+```
+
+### Threads
+
+```bash
+discli thread create #general 123456789 "Support Ticket"
+discli thread list #general
+discli thread send 987654321 "Following up on your issue"
+```
+
+### Servers
+
+```bash
+discli server list
+discli server info "My Server"
+```
+
+### Roles
+
+```bash
+discli role list "My Server"
+discli role create "My Server" Moderator --color ff0000
+discli role assign "My Server" alice Moderator
+discli role remove "My Server" alice Moderator
+discli role delete "My Server" Moderator
+```
+
+### Members
+
+```bash
+discli member list "My Server" --limit 100
+discli member info "My Server" alice
+discli member kick "My Server" alice --reason "Spam"
+discli member ban "My Server" alice --reason "Repeated violations"
+discli member unban "My Server" alice
+```
+
+### Typing Indicator
+
+```bash
+discli typing #general                # 5 seconds (default)
+discli typing #general --duration 10  # 10 seconds
+```
+
+### Live Event Monitoring
+
+```bash
+# Listen to everything
+discli listen
+
+# Filter by server/channel
+discli listen --server "My Server" --channel #general
+
+# Filter by event type
+discli listen --events messages,reactions
+
+# Include bot messages (ignored by default)
+discli listen --include-bots
+
+# JSON output for piping to an agent
+discli listen --json --events messages
+```
+
+Supported event types: `messages`, `reactions`, `members`, `edits`, `deletes`
+
+## Resolving Identifiers
+
+All commands accept both **IDs** and **names**:
+
+| Type | By ID | By Name |
+|------|-------|---------|
+| Channel | `123456789` | `#general` |
+| Server | `123456789` | `My Server` |
+| Member | `123456789` | `alice` |
+| Role | `123456789` | `Moderator` |
+| Thread | `123456789` | `Support Ticket` |
+| User (DM) | `123456789` | `alice` |
+
+## JSON Output
+
+Add `--json` to any command for machine-readable output:
+
+```bash
+$ discli message list #general --limit 1 --json
+[
+  {
+    "id": "123456789",
+    "author": "alice",
+    "content": "Hello!",
+    "timestamp": "2026-03-14T10:32:00+00:00"
+  }
+]
+
+$ discli listen --json
+{"event": "message", "server": "My Server", "channel": "general", "channel_id": "111", "author": "alice", "author_id": "222", "content": "hello", "message_id": "333", "mentions_bot": false, "attachments": [], ...}
+```
+
+## Building an AI Agent
+
+A basic agent loop using `discli`:
+
+```bash
+# 1. Listen for messages mentioning the bot
+discli listen --json --events messages | while read -r event; do
+  mentions_bot=$(echo "$event" | jq -r '.mentions_bot')
+  if [ "$mentions_bot" = "true" ]; then
+    channel_id=$(echo "$event" | jq -r '.channel_id')
+    message_id=$(echo "$event" | jq -r '.message_id')
+    content=$(echo "$event" | jq -r '.content')
+
+    # 2. Show typing while thinking
+    discli typing "$channel_id" --duration 3 &
+
+    # 3. Generate response (your AI here)
+    response="Got your message: $content"
+
+    # 4. Reply to the message
+    discli message reply "$channel_id" "$message_id" "$response"
+  fi
+done
+```
+
+## Configuration
+
+Config is stored at `~/.discli/config.json`.
+
+```bash
+discli config set token YOUR_TOKEN
+discli config show
+discli config show --json
+```
+
+Token resolution order: `--token` flag > `DISCORD_BOT_TOKEN` env var > config file.
+
+## License
+
+MIT
