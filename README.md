@@ -1,6 +1,56 @@
-# discli
+<p align="center">
+  <h1 align="center">discli</h1>
+  <p align="center">Discord CLI for AI agents and humans</p>
+</p>
 
-A command-line interface for Discord, built for AI agents and humans. Manage servers, send messages, react, handle DMs, threads, and monitor events — all from the terminal.
+<p align="center">
+  <a href="https://pypi.org/project/discord-cli-agent/"><img src="https://img.shields.io/pypi/v/discord-cli-agent?color=blue&label=PyPI" alt="PyPI"></a>
+  <a href="https://pypi.org/project/discord-cli-agent/"><img src="https://img.shields.io/pypi/pyversions/discord-cli-agent" alt="Python"></a>
+  <a href="https://github.com/DevRohit06/discli/actions/workflows/release.yml"><img src="https://github.com/DevRohit06/discli/actions/workflows/release.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/DevRohit06/discli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/DevRohit06/discli" alt="License"></a>
+  <a href="https://github.com/DevRohit06/discli/releases"><img src="https://img.shields.io/github/v/release/DevRohit06/discli?label=Latest" alt="Release"></a>
+  <a href="https://github.com/DevRohit06/discli/stargazers"><img src="https://img.shields.io/github/stars/DevRohit06/discli" alt="Stars"></a>
+</p>
+
+---
+
+Manage Discord servers, send messages, react, handle DMs, threads, and monitor events, all from the terminal. Built with security and AI agent integration in mind.
+
+## How it works
+
+```
+                         +-----------+
+                         |  discli   |
+                         |   CLI     |
+                         +-----+-----+
+                               |
+              +----------------+----------------+
+              |                |                |
+        +-----v-----+   +-----v-----+   +------v------+
+        |  Command   |   |  Listen   |   |  Security   |
+        |  (fire &   |   |  (stay    |   |  (perms,    |
+        |   exit)    |   |  connected)|  |  audit,     |
+        +-----+------+  +-----+-----+   |  rate limit)|
+              |                |         +-------------+
+              +--------+-------+
+                       |
+                 +-----v-----+
+                 | discord.py|
+                 |  (Bot API)|
+                 +-----------+
+```
+
+```
+  AI Agent Loop:
+
+  discli listen --json        discli message reply
+       |                            ^
+       v                            |
+  +---------+    +----------+  +----+----+
+  | Events  |--->| AI Model |--> Response|
+  | (JSONL) |    | (Claude) |  |         |
+  +---------+    +----------+  +---------+
+```
 
 ## Install
 
@@ -164,7 +214,7 @@ Destructive actions (kick, ban, delete) require confirmation by default:
 
 ```bash
 $ discli member kick "My Server" spammer
-⚠ Destructive action: member kick (spammer from My Server). Continue? [y/N]
+Warning: Destructive action: member kick (spammer from My Server). Continue? [y/N]
 
 # Skip with --yes for automation
 $ discli -y member kick "My Server" spammer --reason "Spam"
@@ -179,8 +229,8 @@ Restrict which commands an agent can use:
 discli permission profiles
 
 # Set a profile
-discli permission set chat        # Messages, reactions, threads only — no moderation
-discli permission set readonly    # Can only read — no sending or deleting
+discli permission set chat        # Messages, reactions, threads only, no moderation
+discli permission set readonly    # Can only read, no sending or deleting
 discli permission set moderation  # Full access including kick/ban
 discli permission set full        # Everything (default)
 ```
@@ -215,13 +265,6 @@ discli --json audit show
 
 # Clear the log
 discli audit clear
-```
-
-Example output:
-```
-[2026-03-14 12:30:00] member kick ok (by 123456789)
-[2026-03-14 12:31:00] channel delete ok
-[2026-03-14 12:32:00] permission_check denied
 ```
 
 ### Rate Limiting
@@ -268,7 +311,7 @@ Ready-to-run examples in the [`examples/`](examples/) directory:
 
 | Example | Description |
 |---------|-------------|
-| [`claude_agent.py`](examples/claude_agent.py) | AI support agent powered by Claude Agent SDK — persistent session, loads instructions from [`agents/discord-agent.md`](agents/discord-agent.md) |
+| [`claude_agent.py`](examples/claude_agent.py) | AI support agent powered by Claude Agent SDK with persistent session |
 | [`support_agent.py`](examples/support_agent.py) | Keyword-based support bot that replies to @mentions |
 | [`thread_support_agent.py`](examples/thread_support_agent.py) | Creates a thread per support request and continues conversations inside |
 | [`moderation_bot.py`](examples/moderation_bot.py) | Watches for banned words, warns users, kicks after repeated violations |
@@ -277,9 +320,9 @@ Ready-to-run examples in the [`examples/`](examples/) directory:
 
 ### Agent Instructions
 
-The [`agents/discord-agent.md`](agents/discord-agent.md) file contains the full discli command reference for AI agents. Drop it into any agent's system prompt — works with Claude, OpenAI, LangChain, or any framework.
+The [`agents/discord-agent.md`](agents/discord-agent.md) file contains the full discli command reference for AI agents. Drop it into any agent's system prompt. Works with Claude, OpenAI, LangChain, or any framework.
 
-### Quick start — Claude Agent
+### Quick start: Claude Agent
 
 ```bash
 pip install discord-cli-agent claude-agent-sdk
@@ -287,9 +330,9 @@ discli config set token YOUR_BOT_TOKEN
 python examples/claude_agent.py
 ```
 
-Uses your existing Claude Code authentication — no API key needed.
+Uses your existing Claude Code authentication. No API key needed.
 
-### Quick start — Bash agent loop
+### Quick start: Bash agent loop
 
 ```bash
 discli --json listen --events messages | while read -r event; do
@@ -307,17 +350,17 @@ done
 
 ```
 discli/
-├── src/discli/          # CLI source code
+├── src/discli/
 │   ├── cli.py           # Root click group + permission/audit commands
 │   ├── client.py        # Async discord.py wrapper
 │   ├── config.py        # Token storage (~/.discli/config.json)
 │   ├── security.py      # Permissions, audit logging, rate limiting
 │   ├── utils.py         # Output formatting, resolvers
 │   └── commands/        # Command groups (message, channel, role, etc.)
-├── agents/              # Agent instruction files
-│   └── discord-agent.md # Full discli reference for AI agents
+├── agents/
+│   └── discord-agent.md # Full command reference for AI agents
 ├── examples/            # Ready-to-run agent examples
-├── installers/          # Install scripts (curl-friendly)
+├── installers/          # curl-friendly install scripts
 ├── tests/               # Unit tests
 └── pyproject.toml
 ```
@@ -333,6 +376,10 @@ discli config show --json
 ```
 
 Token resolution order: `--token` flag > `DISCORD_BOT_TOKEN` env var > config file.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, how to add commands, and release process.
 
 ## License
 
