@@ -31,7 +31,7 @@ flowchart TD
 |---|---|---|
 | 1 (highest) | `--token` CLI flag | `discli --token Bot_ABC123 message send ...` |
 | 2 | `DISCORD_BOT_TOKEN` environment variable | `export DISCORD_BOT_TOKEN=Bot_ABC123` |
-| 3 (lowest) | `~/.discli/config.json` file | `{"token": "Bot_ABC123"}` |
+| 3 (lowest) | `~/.discli/config.json` file | `&#123;"token": "Bot_ABC123"&#125;` |
 
 The first source that provides a non-empty value wins. If none of the three sources has a token, discli exits with an error:
 

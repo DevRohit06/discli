@@ -309,8 +309,8 @@ discli catches `HTTPException` on edits silently. If Discord is temporarily unav
 |----------|---------------|
 | LLM generates faster than 1.5s flush | Normal. Chunks batch, user sees smooth updates. |
 | LLM generates slower than 1.5s per token | User sees occasional jumps. Consider buffering a few tokens before sending as a chunk. |
-| Very short response (<10 tokens) | Streaming adds overhead for minimal benefit. Consider a direct `reply` instead. |
-| Very long response (>2000 chars) | Handled automatically. Overflow goes to follow-up messages. |
+| Very short response (under 10 tokens) | Streaming adds overhead for minimal benefit. Consider a direct `reply` instead. |
+| Very long response (over 2000 chars) | Handled automatically. Overflow goes to follow-up messages. |
 
 ## Next Steps
 
