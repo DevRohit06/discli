@@ -1,0 +1,126 @@
+---
+title: discli vs Discord Libraries
+description: How discli compares to discord.py and discord.js
+---
+
+# discli vs Discord Libraries
+
+discord.py and discord.js are the two dominant libraries for building Discord bots. They are powerful, battle-tested, and backed by large communities. discli takes a fundamentally different approach: instead of being a library you import, it is a standalone tool you run.
+
+## What they are
+
+**discord.py** is an async Python library that wraps the Discord API. You write a Python program, define event handlers, and run it as a long-lived process. **discord.js** is the JavaScript equivalent built on Node.js. Both give you full, fine-grained control over every Discord API endpoint.
+
+**discli** is a command-line tool and agent protocol. You interact with Discord through shell commands or a bidirectional JSONL stream. No library imports, no event loop management, no language lock-in.
+
+## Where discord.py/js excel
+
+- **Full API coverage** — every endpoint, every object, every event
+- **Fine-grained control** — custom caches, sharding strategies, voice connections
+- **Massive ecosystems** — thousands of extensions, tutorials, and StackOverflow answers
+- **Production-proven** — bots serving millions of users across tens of thousands of guilds
+
+## Where discli differs
+
+- **No boilerplate** — send a message in one command, not 30 lines of setup
+- **Language-agnostic** — any language that can spawn a subprocess or read JSONL works
+- **Security built-in** — permission profiles, audit logs, and rate limiting out of the box
+- **Dual-mode** — use it as a CLI for one-off tasks or as a persistent server for agents
+- **AI-native** — the JSONL agent protocol was designed for LLM tool-use from day one
+
+## Comparison table
+
+| Aspect | discord.py / discord.js | discli |
+|---|---|---|
+| **Setup** | `pip install` / `npm install`, write bot class, configure intents | `pip install discord-cli-agent`, set token, run |
+| **Language** | Python / JavaScript only | Any language (CLI or subprocess) |
+| **Event loop** | You manage `asyncio` / Node event loop | discli manages it internally |
+| **Intents** | Configured in code | Configured via `discli config` or flags |
+| **Security** | Roll your own | Built-in permission profiles, audit log, rate limits |
+| **AI integration** | Write custom glue code | Native JSONL agent protocol |
+| **Streaming** | Manual websocket handling | `discli listen` or `discli serve` streams JSONL |
+| **Learning curve** | Moderate to steep | Low — if you can use a terminal, you can use discli |
+
+## Code comparison
+
+Here is the same task — a bot that listens for messages and replies — in both approaches.
+
+<Tabs>
+<Tab title="discord.py">
+```python
+import discord
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+client = discord.Client(intents=intents)
+
+@client.event
+async def on_ready():
+    print(f"Logged in as {client.user}")
+
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
+    if message.content.startswith("!hello"):
+        await message.channel.send("Hello from discord.py!")
+
+client.run("YOUR_BOT_TOKEN")
+```
+
+That is 16 lines of Python with imports, intent configuration, a client class, two async event handlers, and a blocking `run()` call. Real bots add error handling, cogs, and command frameworks on top of this.
+</Tab>
+
+<Tab title="discli (any language)">
+```python
+import subprocess, json
+
+proc = subprocess.Popen(
+    ["discli", "serve", "--events", "messages"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    text=True,
+)
+
+for line in proc.stdout:
+    event = json.loads(line)
+    if event.get("type") == "message_create":
+        content = event["data"].get("content", "")
+        if content.startswith("!hello"):
+            action = {
+                "action": "message_send",
+                "channel": event["data"]["channel_id"],
+                "content": "Hello from discli!",
+            }
+            proc.stdin.write(json.dumps(action) + "\n")
+            proc.stdin.flush()
+```
+
+No Discord-specific imports. No async/await. No intent objects. The same pattern works from Node.js, Go, Rust, Ruby, or a bash script.
+</Tab>
+</Tabs>
+
+## When to use discord.py or discord.js
+
+<Callout type="tip">
+discord.py and discord.js are the right choice when you need deep control over the Discord API itself.
+</Callout>
+
+Choose a library when you need:
+
+- **Rich embeds, buttons, select menus, and modals** — full component builder APIs
+- **Voice and audio** — connect to voice channels, play audio, record
+- **Complex stateful bots** — conversation trees, multi-step wizards, persistent state machines
+- **Webhooks and OAuth2 flows** — user-facing authentication and integrations
+- **Extreme scale** — sharding across 10,000+ guilds with custom caching strategies
+
+## When to use discli
+
+Choose discli when you need:
+
+- **AI agents that talk to Discord** — the JSONL protocol was built for this
+- **Bash scripting and CI/CD** — pipe Discord messages like any other Unix tool
+- **Security guardrails** — permission profiles prevent agents from doing things they should not
+- **Fast prototyping** — go from idea to working bot in minutes, not hours
+- **Language freedom** — use whatever language your team already knows

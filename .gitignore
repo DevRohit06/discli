@@ -4,3 +4,8 @@ __pycache__/
 dist/
 build/
 *.egg
+
+# Docs build output
+docs/dist/
+docs/.astro/
+docs/node_modules/

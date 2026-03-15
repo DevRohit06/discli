@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Chat bubble -->
+  <path d="M8 10C8 7.79 9.79 6 12 6h24c2.21 0 4 1.79 4 4v18c0 2.21-1.79 4-4 4H20l-7 6v-6h-1c-2.21 0-4-1.79-4-4V10z" fill="#5865F2"/>
+  <!-- Terminal prompt inside bubble -->
+  <path d="M15 16L21 21L15 26" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <line x1="24" y1="26" x2="33" y2="26" stroke="#c8ff00" stroke-width="2.8" stroke-linecap="round"/>
+</svg>

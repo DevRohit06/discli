@@ -1,0 +1,254 @@
+---
+title: Channel Logger
+description: Stream Discord events to JSONL files for audit and analysis
+---
+
+# Channel Logger
+
+Stream Discord channel activity to structured JSONL files for auditing, compliance, and analytics.
+
+## The problem
+
+You need a reliable audit trail of what happens in your Discord server. Maybe it is for compliance, community analytics, or simply keeping records. Discord's built-in audit log is limited and does not capture message content.
+
+## The solution
+
+Use `discli listen` to stream events in real time and pipe them to log files. Each event is a self-contained JSON object on its own line (JSONL format), making logs easy to parse, search, and analyze with standard tools like `jq`, `grep`, or Python.
+
+## Full working code
+
+<Tabs>
+  <Tab title="Bash">
+    ```bash
+    #!/bin/bash
+    # channel-logger.sh — Stream a Discord channel to a JSONL log file.
+
+    CHANNEL="${1:?Usage: $0 <channel> [logfile]}"
+    LOGFILE="${2:-discord-${CHANNEL}-$(date +%Y%m%d).jsonl}"
+
+    echo "Logging #${CHANNEL} to ${LOGFILE}..." >&2
+    echo "Press Ctrl+C to stop." >&2
+
+    discli --json listen --channel "$CHANNEL" --events messages | while read -r event; do
+        # Append raw JSON event to log file
+        echo "$event" >> "$LOGFILE"
+
+        # Print human-readable summary to terminal
+        author=$(echo "$event" | jq -r '.author')
+        content=$(echo "$event" | jq -r '.content')
+        timestamp=$(echo "$event" | jq -r '.timestamp[:19]' | tr 'T' ' ')
+        echo "[${timestamp}] ${author}: ${content}"
+    done
+
+    echo "Logging stopped." >&2
+    ```
+
+    Run it:
+
+    ```bash
+    chmod +x channel-logger.sh
+    ./channel-logger.sh general
+    # or with a custom log file:
+    ./channel-logger.sh general /var/log/discord/general.jsonl
+    ```
+  </Tab>
+
+  <Tab title="Python">
+    ```python
+    #!/usr/bin/env python3
+    """channel_logger.py — Stream Discord events to JSONL with rotation."""
+
+    import json
+    import subprocess
+    import sys
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    CHANNEL = sys.argv[1] if len(sys.argv) > 1 else None
+    LOG_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".")
+
+    if not CHANNEL:
+        print("Usage: python channel_logger.py <channel> [log_directory]", file=sys.stderr)
+        sys.exit(1)
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    def get_log_path():
+        """Generate a date-based log file path for daily rotation."""
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return LOG_DIR / f"discord-{CHANNEL}-{date_str}.jsonl"
+
+    current_date = None
+    log_file = None
+
+    # Start listening
+    cmd = ["discli", "--json", "listen", "--channel", CHANNEL, "--events", "messages"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+
+    print(f"Logging #{CHANNEL} to {LOG_DIR}/. Ctrl+C to stop.", file=sys.stderr)
+
+    try:
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            # Daily log rotation
+            today = datetime.now(timezone.utc).date()
+            if today != current_date:
+                if log_file:
+                    log_file.close()
+                log_file = open(get_log_path(), "a", encoding="utf-8")
+                current_date = today
+                print(f"[rotate] Writing to {get_log_path()}", file=sys.stderr)
+
+            # Write raw JSON line
+            log_file.write(json.dumps(event, default=str) + "\n")
+            log_file.flush()
+
+            # Print summary to terminal
+            ts = event.get("timestamp", "")[:19].replace("T", " ")
+            author = event.get("author", "unknown")
+            content = event.get("content", "")
+            print(f"[{ts}] {author}: {content}")
+
+    except KeyboardInterrupt:
+        print("\nStopping logger.", file=sys.stderr)
+    finally:
+        if log_file:
+            log_file.close()
+        proc.terminate()
+    ```
+
+    Run it:
+
+    ```bash
+    python channel_logger.py general ./logs
+    ```
+  </Tab>
+
+  <Tab title="Multi-channel">
+    ```bash
+    #!/bin/bash
+    # multi-logger.sh — Log multiple channels simultaneously.
+
+    LOG_DIR="${1:-./discord-logs}"
+    mkdir -p "$LOG_DIR"
+
+    CHANNELS=("general" "support" "announcements" "dev-chat")
+
+    echo "Logging ${#CHANNELS[@]} channels to ${LOG_DIR}/..." >&2
+
+    pids=()
+    for channel in "${CHANNELS[@]}"; do
+        logfile="${LOG_DIR}/${channel}-$(date +%Y%m%d).jsonl"
+        discli --json listen --channel "$channel" --events messages >> "$logfile" &
+        pids+=($!)
+        echo "  #${channel} -> ${logfile}" >&2
+    done
+
+    echo "Press Ctrl+C to stop all loggers." >&2
+
+    # Wait for Ctrl+C, then clean up
+    trap 'echo "Stopping..."; kill "${pids[@]}" 2>/dev/null; exit 0' INT TERM
+    wait
+    ```
+  </Tab>
+</Tabs>
+
+## Step-by-step explanation
+
+<Steps>
+  <Step title="Start the event stream">
+    The `discli listen` command opens a WebSocket connection to Discord and outputs events as JSON lines. The `--channel` flag filters to a specific channel, and `--events messages` limits the stream to message events only.
+
+    ```bash
+    discli --json listen --channel general --events messages
+    ```
+
+    Each line of output is a complete JSON object:
+
+    ```json
+    {"event":"message","server":"My Server","channel":"general","channel_id":"123...","author":"Alice","author_id":"456...","content":"Hello everyone!","timestamp":"2026-03-15T10:30:00+00:00","message_id":"789...","mentions_bot":false,"attachments":[],"reply_to":null}
+    ```
+  </Step>
+
+  <Step title="Write to JSONL files">
+    Each JSON event is appended as a single line to the log file. JSONL (JSON Lines) format means one valid JSON object per line, making it trivial to parse with any tool.
+
+    <Callout type="tip">
+      Always call `flush()` after writing each line (or use line-buffered output) to ensure events are persisted immediately. If the process crashes, you will not lose buffered data.
+    </Callout>
+  </Step>
+
+  <Step title="Analyze with jq">
+    Once you have a log file, use `jq` to extract insights:
+
+    ```bash
+    # Count messages per author
+    jq -r '.author' discord-general-2026-03-15.jsonl | sort | uniq -c | sort -rn
+
+    # Find messages containing a keyword
+    jq -r 'select(.content | test("bug"; "i")) | "\(.author): \(.content)"' discord-general-2026-03-15.jsonl
+
+    # Get message count per hour
+    jq -r '.timestamp[:13]' discord-general-2026-03-15.jsonl | sort | uniq -c
+
+    # List all unique authors
+    jq -r '.author' discord-general-2026-03-15.jsonl | sort -u
+
+    # Extract messages with attachments
+    jq 'select(.attachments | length > 0)' discord-general-2026-03-15.jsonl
+    ```
+  </Step>
+
+  <Step title="Set up log rotation">
+    The Python version includes automatic daily rotation -- it creates a new file each day with the date in the filename. For the bash version, use the date in the filename or set up `logrotate`:
+
+    ```bash
+    # Manual rotation via cron (runs at midnight)
+    # crontab -e
+    0 0 * * * pkill -f "discli.*listen.*general" && /path/to/channel-logger.sh general /var/log/discord/general-$(date +\%Y\%m\%d).jsonl &
+    ```
+  </Step>
+</Steps>
+
+## Edge cases and pitfalls
+
+<Callout type="warning">
+  **Disk space.** A busy channel can generate hundreds of MB of logs per day. Monitor disk usage and set up automatic cleanup of old log files. A simple approach: `find /var/log/discord -name "*.jsonl" -mtime +30 -delete` in a daily cron job.
+</Callout>
+
+<Callout type="warning">
+  **Encoding issues.** Discord messages can contain any Unicode character, including emoji, RTL text, and zero-width characters. Always open log files with `encoding="utf-8"` and use `json.dumps(event, default=str, ensure_ascii=False)` to preserve the original text.
+</Callout>
+
+<Callout type="warning">
+  **Missed events during restarts.** If the logger process crashes or restarts, events that occurred during downtime are lost. `discli listen` streams in real time and does not replay missed events. For gap-free logging, combine real-time listening with periodic `discli message history` backfills.
+</Callout>
+
+<Callout type="warning">
+  **Privacy and compliance.** Logging message content may be subject to privacy regulations (GDPR, CCPA). Ensure your server rules disclose that messages are logged, and implement a data deletion mechanism for user requests.
+</Callout>
+
+## Extending the logger
+
+<CardGroup cols={2}>
+  <Card title="Ship to cloud storage">
+    Upload completed daily logs to S3, GCS, or Azure Blob Storage. Use a cron job that runs after midnight to compress and upload the previous day's file.
+  </Card>
+  <Card title="SQLite for querying">
+    Parse JSONL files into a SQLite database for richer queries. Create tables for messages, authors, and channels, then use SQL for analytics.
+  </Card>
+  <Card title="Real-time keyword alerts">
+    Pipe the event stream through a filter that detects keywords and sends alerts to a monitoring channel or webhook. Combine with the [Moderation Bot](/use-cases/moderation-bot) pattern.
+  </Card>
+  <Card title="Dashboard with Grafana">
+    Ship metrics (message count, active users, response times) to Prometheus or InfluxDB, then visualize them in Grafana for real-time community health monitoring.
+  </Card>
+</CardGroup>

@@ -1,0 +1,148 @@
+---
+title: FAQ
+description: Frequently asked questions about discli
+---
+
+# FAQ
+
+<Accordion title="Can I use discli without Python?">
+**Yes, for the CLI.** discli is installed via pip (it is a Python package), but once installed, the `discli` binary works as a standalone command-line tool. You do not need to write any Python.
+
+For agents, **any language works**. The `discli serve` protocol is language-agnostic JSONL over stdin/stdout. Your agent can be written in Node.js, Go, Rust, Ruby, Bash, or anything else that can spawn a subprocess and read/write lines.
+
+```bash
+# Install (requires Python/pip one time)
+pip install discord-cli-agent
+
+# Use from any language — no Python needed after install
+discli message send "#general" "Hello from Rust!"
+```
+</Accordion>
+
+<Accordion title="Does it work with self-hosted Discord (Fosscord, Spacebar)?">
+**No.** discli uses the official Discord API exclusively. Self-hosted Discord alternatives (Fosscord, Spacebar, Revolt, Guilded) have different APIs and are not supported.
+
+If a self-hosted platform offers a Discord-compatible API, discli might work by pointing the API base URL at it, but this is untested and unsupported.
+</Accordion>
+
+<Accordion title="Can multiple agents share one bot token?">
+**One `discli serve` instance per token.** Discord's gateway allows a single active WebSocket connection per bot token. Running two `discli serve` processes with the same token causes a reconnect loop.
+
+However, **CLI commands can run concurrently** with no issues. They use stateless REST API calls, so you can have one `discli serve` running and simultaneously use `discli message send` from another terminal or script.
+
+If you need multiple independent agents, create a separate bot application and token for each one.
+</Accordion>
+
+<Accordion title="Is this against Discord's Terms of Service?">
+**No.** discli uses the official Discord Bot API with proper bot tokens. It does not:
+
+- Use user/selfbot tokens
+- Scrape the Discord client
+- Reverse-engineer proprietary protocols
+- Bypass rate limits
+
+discli is no different from any other Discord bot library (discord.py, discord.js) in terms of API compliance. Your bot must still follow [Discord's Developer Terms of Service](https://discord.com/developers/docs/policies-and-agreements/developer-terms-of-service) and [Developer Policy](https://discord.com/developers/docs/policies-and-agreements/developer-policy).
+</Accordion>
+
+<Accordion title="Can I use this with OpenAI, Claude, or local models?">
+**Yes, discli is model-agnostic.** The JSONL protocol does not know or care what AI model (if any) is processing events. You can use:
+
+- **OpenAI** (GPT-4, GPT-4o, etc.)
+- **Anthropic Claude** (Claude 3, Claude 4, etc.)
+- **Local models** (Llama, Mistral, Phi via Ollama, llama.cpp, vLLM)
+- **Any other model** that can read JSON and produce text
+- **No model at all** — discli works just fine for rule-based bots or simple scripts
+
+```python
+# Your agent decides what to do with events
+event = json.loads(line_from_discli)
+
+# Send to whatever model you want
+response = openai.chat(...)       # or
+response = anthropic.messages(...) # or
+response = ollama.generate(...)    # or
+response = my_rules_engine(event)  # no AI needed
+```
+</Accordion>
+
+<Accordion title="How do I add embeds, buttons, or select menus?">
+**Text-only for now.** discli currently supports sending and receiving text messages through the JSONL serve protocol. Rich embeds, buttons, select menus, and modals are not yet supported in serve mode.
+
+For **CLI usage**, basic embeds are supported:
+
+```bash
+discli message send "#announcements" "New release!" \
+  --embed-title "v2.1.0" \
+  --embed-desc "Bug fixes and performance improvements"
+```
+
+Full component support (buttons, select menus, modals) in both CLI and serve mode is planned for a future release.
+</Accordion>
+
+<Accordion title="What permissions does my bot need?">
+It depends on what you are doing. Here is a minimum set for common use cases:
+
+| Use case | Required permissions |
+|---|---|
+| Send messages | Send Messages |
+| Read messages | View Channel, Read Message History |
+| Listen to events | View Channel, Read Message History |
+| Manage channels | Manage Channels |
+| Moderate members | Kick Members, Ban Members |
+| Use slash commands | Use Application Commands (enabled by default) |
+
+<Callout type="tip">
+Start with the minimum permissions your bot needs. You can always add more later. The principle of least privilege applies to bots too.
+</Callout>
+</Accordion>
+
+<Accordion title="How do I update discli?">
+Use pip's upgrade flag:
+
+```bash
+pip install --upgrade discord-cli-agent
+```
+
+Check your current version:
+
+```bash
+discli --version
+```
+
+discli follows semantic versioning. Minor and patch updates are backward-compatible. Major version bumps may include breaking changes and will be documented in the changelog.
+</Accordion>
+
+<Accordion title="Can I run this in Docker?">
+**Yes.** discli is a standard Python package with no system-level dependencies beyond Python itself. A minimal Dockerfile:
+
+```dockerfile
+FROM python:3.11-slim
+RUN pip install discord-cli-agent
+ENV DISCORD_BOT_TOKEN=your_token_here
+CMD ["discli", "serve", "--events", "messages"]
+```
+
+For production, use a non-root user and pass the token via environment variable at runtime (not baked into the image):
+
+```dockerfile
+FROM python:3.11-slim
+RUN pip install discord-cli-agent && \
+    useradd -m discli
+USER discli
+ENTRYPOINT ["discli"]
+```
+
+```bash
+docker run -e DISCORD_BOT_TOKEN=your_token my-discli-bot serve --events messages
+```
+</Accordion>
+
+<Accordion title="Is there a rate limit?">
+**Yes, two layers:**
+
+1. **discli's built-in rate limiter** — 5 destructive actions (send, delete, ban, etc.) per 5-second window. This protects against runaway agents and keeps you well under Discord's limits. Read-only actions (list, search, info) are not rate-limited by discli.
+
+2. **Discord's API rate limits** — vary by endpoint. Most endpoints allow 5 requests per 5 seconds per route. Some endpoints (like bulk message delete) have stricter limits. discli handles Discord 429 responses automatically with exponential backoff.
+
+If you need higher throughput for a specific use case, check the [Discord Rate Limits documentation](https://discord.com/developers/docs/topics/rate-limits) for per-endpoint details.
+</Accordion>

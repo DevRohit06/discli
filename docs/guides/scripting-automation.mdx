@@ -1,0 +1,468 @@
+---
+title: Scripting & Automation
+description: Automate Discord with bash scripts, cron jobs, and CI pipelines
+---
+
+discli is a standard Unix CLI. It reads tokens from environment variables, outputs structured JSON, and exits with meaningful codes. This makes it a natural fit for shell scripts, cron jobs, and CI/CD pipelines.
+
+## Bash One-Liners
+
+Quick operations you can run directly from your terminal or paste into a script.
+
+<CodeGroup>
+
+```bash Send a message
+discli message send "#general" "Hello from the terminal!"
+```
+
+```bash List channel names as plain text
+discli --json channel list --server "My Server" | jq -r '.[].name'
+```
+
+```bash Count members in a server
+discli --json member list "My Server" --limit 1000 | jq 'length'
+```
+
+```bash Find messages from a specific user today
+discli --json message search "#general" "" --author "alice#1234" --after "$(date -u +%Y-%m-%d)" | jq 'length'
+```
+
+```bash Export channel history to CSV
+discli --json message history "#general" --days 7 | jq -r '.[] | [.timestamp, .author, .content] | @csv' > history.csv
+```
+
+```bash Add a reaction to the latest message
+LATEST=$(discli --json message list "#general" --limit 1 | jq -r '.[0].id')
+discli reaction add "#general" "$LATEST" "👍"
+```
+
+</CodeGroup>
+
+## Channel Logging Script
+
+Record all messages from a channel to a file, with automatic rotation.
+
+```bash channel-logger.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+CHANNEL="${1:?Usage: $0 <channel> [log_dir]}"
+LOG_DIR="${2:-./logs}"
+mkdir -p "$LOG_DIR"
+
+LOG_FILE="$LOG_DIR/$(date -u +%Y-%m-%d).jsonl"
+
+echo "Logging $CHANNEL to $LOG_FILE (Ctrl+C to stop)" >&2
+
+discli --json listen --channel "$CHANNEL" --events messages >> "$LOG_FILE"
+```
+
+Usage:
+
+```bash
+# Log #support to ./logs/
+./channel-logger.sh "#support"
+
+# Log to a custom directory
+./channel-logger.sh "#support" /var/log/discord
+
+# Run in background
+nohup ./channel-logger.sh "#support" /var/log/discord &
+```
+
+<Callout type="tip">
+The log file rotates daily by date. Each line is a complete JSON object, so you can process it with `jq`, import it into a database, or pipe it to a log aggregator.
+</Callout>
+
+### Analyzing Logged Data
+
+```bash
+# Messages per author today
+cat logs/$(date -u +%Y-%m-%d).jsonl | jq -r '.author' | sort | uniq -c | sort -rn
+
+# Find messages containing "error"
+cat logs/*.jsonl | jq -r 'select(.content | test("error"; "i")) | "\(.timestamp) \(.author): \(.content)"'
+
+# Count messages per hour
+cat logs/$(date -u +%Y-%m-%d).jsonl | jq -r '.timestamp[:13]' | sort | uniq -c
+```
+
+## Reaction-Based Polls
+
+Create a simple poll by posting a message and adding reaction options.
+
+```bash reaction-poll.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+CHANNEL="${1:?Usage: $0 <channel> <question> <emoji1> <emoji2> [emoji3...]}"
+QUESTION="${2:?}"
+shift 2
+EMOJIS=("$@")
+
+if [ ${#EMOJIS[@]} -lt 2 ]; then
+    echo "Need at least 2 emoji options" >&2
+    exit 1
+fi
+
+# Build the poll message
+MESSAGE="📊 **Poll:** $QUESTION\n\n"
+for emoji in "${EMOJIS[@]}"; do
+    MESSAGE+="$emoji — React to vote\n"
+done
+
+# Send the message and capture the ID
+MSG_ID=$(discli --json message send "$CHANNEL" "$(echo -e "$MESSAGE")" | jq -r '.id')
+
+if [ -z "$MSG_ID" ] || [ "$MSG_ID" = "null" ]; then
+    echo "Failed to send poll message" >&2
+    exit 1
+fi
+
+# Add reaction options
+for emoji in "${EMOJIS[@]}"; do
+    discli reaction add "$CHANNEL" "$MSG_ID" "$emoji"
+    sleep 0.5  # Avoid rate limits
+done
+
+echo "Poll created! Message ID: $MSG_ID"
+```
+
+Usage:
+
+```bash
+./reaction-poll.sh "#general" "Best programming language?" "🐍" "🦀" "🟨"
+```
+
+## Cron Job Examples
+
+Schedule Discord operations to run on a timer.
+
+### Daily Channel Summary
+
+```bash daily-summary.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+CHANNEL="#daily-summary"
+SOURCE="#general"
+
+# Get yesterday's message count
+YESTERDAY=$(date -u -d "yesterday" +%Y-%m-%d 2>/dev/null || date -u -v-1d +%Y-%m-%d)
+COUNT=$(discli --json message history "$SOURCE" --days 1 | jq 'length')
+
+# Get top authors
+TOP_AUTHORS=$(discli --json message history "$SOURCE" --days 1 \
+  | jq -r '[group_by(.author) | .[] | {author: .[0].author, count: length}] | sort_by(-.count) | .[:5] | .[] | "  \(.author): \(.count) messages"')
+
+discli message send "$CHANNEL" "📊 **Daily Summary for #general** ($YESTERDAY)
+
+Messages: $COUNT
+Top contributors:
+$TOP_AUTHORS"
+```
+
+Crontab entry (run at 9 AM UTC daily):
+
+```
+0 9 * * * /path/to/daily-summary.sh
+```
+
+### Scheduled Announcements
+
+```bash
+# Every Monday at 9 AM: team standup reminder
+0 9 * * 1 discli message send "#engineering" "🔔 Time for standup! What did you work on last week?"
+
+# First of every month: billing reminder
+0 10 1 * * discli message send "#billing" "📅 Monthly billing cycle starts today. Check your dashboards."
+
+# Every hour during business hours: status check
+0 9-17 * * 1-5 discli --json server list | jq -r '.[].name' | while read server; do echo "$(date): $server online"; done >> /var/log/discord-status.log
+```
+
+<Callout type="warning">
+Cron jobs run with a minimal environment. Make sure `discli` is in the PATH or use the full path. Set `DISCORD_BOT_TOKEN` in the crontab or use `~/.discli/config.json` for token resolution.
+</Callout>
+
+### Cron Environment Setup
+
+```bash
+# Option 1: Set token in crontab
+DISCORD_BOT_TOKEN=your-token-here
+0 9 * * * /path/to/daily-summary.sh
+
+# Option 2: Source a token file
+0 9 * * * . /path/to/.env && /path/to/daily-summary.sh
+
+# Option 3: Use config.json (no env needed)
+# Ensure ~/.discli/config.json has {"token": "your-token"}
+0 9 * * * /usr/local/bin/discli message send "#general" "Good morning!"
+```
+
+## GitHub Actions: Deploy Notifications
+
+Send Discord notifications from your CI/CD pipeline.
+
+```yaml .github/workflows/deploy.yml
+name: Deploy and Notify
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy
+        run: |
+          # Your deployment steps here
+          echo "Deploying..."
+
+      - name: Install discli
+        run: pip install discord-cli-agent
+
+      - name: Notify Discord
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%s)
+          COMMIT_AUTHOR=$(git log -1 --pretty=%an)
+          COMMIT_SHA=$(git log -1 --pretty=%h)
+
+          discli message send "#deploys" "🚀 **Deployed to production**
+
+          Commit: \`$COMMIT_SHA\` — $COMMIT_MSG
+          Author: $COMMIT_AUTHOR
+          Branch: ${{ github.ref_name }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+```
+
+### Deployment Status with Embeds
+
+```yaml
+      - name: Notify Discord (with embed)
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: |
+          discli message send "#deploys" "Deployment complete" \
+            --embed-title "v$(cat VERSION) deployed" \
+            --embed-desc "All checks passed. [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+```
+
+### Notify on Failure
+
+```yaml
+      - name: Notify failure
+        if: failure()
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: |
+          discli message send "#deploys" "❌ **Deployment failed**
+
+          Branch: ${{ github.ref_name }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Please investigate."
+```
+
+## JSON + jq Patterns
+
+### Message Analytics
+
+```bash
+# Messages per day over the last week
+discli --json message history "#general" --days 7 \
+  | jq 'group_by(.timestamp[:10]) | map({date: .[0].timestamp[:10], count: length})'
+
+# Average message length
+discli --json message list "#general" --limit 100 \
+  | jq '[.[].content | length] | add / length'
+
+# Most used words (top 20)
+discli --json message list "#general" --limit 500 \
+  | jq -r '.[].content' \
+  | tr '[:upper:]' '[:lower:]' | tr -cs '[:alpha:]' '\n' \
+  | sort | uniq -c | sort -rn | head -20
+```
+
+### Server Health Check
+
+```bash health-check.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATUS_CHANNEL="#bot-status"
+
+# Check if bot can connect and list servers
+SERVERS=$(discli --json server list 2>&1) || {
+    echo "CRITICAL: Cannot connect to Discord" >&2
+    exit 1
+}
+
+SERVER_COUNT=$(echo "$SERVERS" | jq 'length')
+TOTAL_MEMBERS=$(echo "$SERVERS" | jq '[.[].member_count] | add')
+
+discli message send "$STATUS_CHANNEL" "✅ **Health Check Passed**
+Servers: $SERVER_COUNT
+Total members: $TOTAL_MEMBERS
+Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+```
+
+### Bulk Operations
+
+```bash
+# Send a message to all text channels in a server
+discli --json channel list --server "My Server" \
+  | jq -r '.[] | select(.type == "text") | .id' \
+  | while read channel_id; do
+      discli message send "$channel_id" "Important announcement: Server maintenance tonight at 2 AM UTC"
+      sleep 1  # Rate limit friendly
+    done
+
+# Export all channels' recent history
+discli --json channel list --server "My Server" \
+  | jq -r '.[] | select(.type == "text") | "\(.id) \(.name)"' \
+  | while read channel_id channel_name; do
+      echo "Exporting #$channel_name..." >&2
+      discli --json message list "$channel_id" --limit 100 > "export-${channel_name}.json"
+      sleep 2
+    done
+```
+
+## Error Handling in Scripts
+
+### Exit Codes
+
+discli exits with `0` on success and non-zero on failure. Use standard bash error handling:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
+
+# Method 1: set -e (script exits on first error)
+discli message send "#general" "Hello"
+
+# Method 2: Explicit error checking
+if ! discli message send "#general" "Hello" 2>/dev/null; then
+    echo "Failed to send message" >&2
+    # Fallback or alert
+fi
+
+# Method 3: Capture output and check
+OUTPUT=$(discli --json message send "#general" "Hello" 2>&1) || {
+    echo "Send failed: $OUTPUT" >&2
+    exit 1
+}
+MSG_ID=$(echo "$OUTPUT" | jq -r '.id')
+echo "Sent message $MSG_ID"
+```
+
+### Retry Logic
+
+```bash retry-send.sh
+#!/usr/bin/env bash
+
+send_with_retry() {
+    local channel="$1"
+    local message="$2"
+    local max_attempts="${3:-3}"
+    local attempt=1
+
+    while [ $attempt -le $max_attempts ]; do
+        if discli message send "$channel" "$message" 2>/dev/null; then
+            return 0
+        fi
+        echo "Attempt $attempt/$max_attempts failed. Retrying in ${attempt}s..." >&2
+        sleep "$attempt"
+        attempt=$((attempt + 1))
+    done
+
+    echo "Failed after $max_attempts attempts" >&2
+    return 1
+}
+
+# Usage
+send_with_retry "#deploys" "Deployment complete" 3
+```
+
+### Token Validation
+
+```bash
+# Quick check that the token works
+if ! discli server list >/dev/null 2>&1; then
+    echo "ERROR: Discord token is invalid or bot is not in any servers" >&2
+    echo "Set DISCORD_BOT_TOKEN or configure via: discli config set token YOUR_TOKEN" >&2
+    exit 1
+fi
+```
+
+## Combining with Other Tools
+
+### Pipe webhook data to Discord
+
+```bash
+# Forward a GitHub webhook payload to Discord
+curl -s "https://api.github.com/repos/owner/repo/releases/latest" \
+  | jq -r '"New release: \(.tag_name) — \(.html_url)"' \
+  | xargs -I{} discli message send "#releases" "{}"
+```
+
+### Monitor a log file
+
+```bash
+# Watch a log file and forward errors to Discord
+tail -F /var/log/app/error.log | while read line; do
+    discli message send "#alerts" "🚨 Error: $line"
+    sleep 1  # Rate limit
+done
+```
+
+### Database query results to Discord
+
+```bash
+# Send query results as a formatted message
+RESULT=$(psql -t -c "SELECT count(*) FROM users WHERE created_at > now() - interval '1 day'")
+discli message send "#metrics" "📊 New users today: **$RESULT**"
+```
+
+## Security in Scripts
+
+<Callout type="danger">
+Never hardcode tokens in scripts. Use environment variables, secret managers, or `~/.discli/config.json`.
+</Callout>
+
+```bash
+# Bad: token in script
+discli --token "mfa.abc123..." message send "#general" "Hello"
+
+# Good: environment variable
+export DISCORD_BOT_TOKEN="$VAULT_TOKEN"
+discli message send "#general" "Hello"
+
+# Good: config file (set once)
+discli config set token "$VAULT_TOKEN"
+discli message send "#general" "Hello"
+```
+
+For CI/CD, always use encrypted secrets:
+
+```yaml
+env:
+  DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+```
+
+For automated scripts, use the minimum required permission profile:
+
+```bash
+# CI notification only needs to send messages
+discli --profile chat message send "#deploys" "Deployed"
+```
+
+## Next Steps
+
+- [CLI Usage](/guides/cli-usage) -- Full command reference with examples
+- [Security & Permissions](/guides/security-permissions) -- Lock down your automation
+- [Building Agents](/guides/building-agents) -- Go beyond scripts with persistent agents

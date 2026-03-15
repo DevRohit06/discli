@@ -1,0 +1,239 @@
+---
+title: Thread-Based Support
+description: Auto-create threads for each support request to keep channels clean
+---
+
+# Thread-Based Support
+
+Automatically create a dedicated thread for every support request so your main channels stay clean and organized.
+
+## The problem
+
+When multiple users ask questions in the same support channel, conversations overlap and become impossible to follow. Important questions get buried. Users do not know if their issue is being tracked.
+
+## The solution
+
+A bot that watches a support channel and automatically:
+
+1. Creates a new thread when a user @mentions the bot
+2. Sends an acknowledgment inside the thread
+3. Handles follow-up messages within the thread
+4. Optionally integrates with AI for automated responses
+
+Each support request gets its own contained thread, making it easy to track, resolve, and archive.
+
+## Full working code
+
+```python
+#!/usr/bin/env python3
+"""Thread-Based Support — auto-create threads for support requests."""
+
+import json
+import subprocess
+import sys
+
+SUPPORT_CHANNELS = {"support", "help", "questions"}  # Channel names to watch
+
+def run_discli(*args):
+    """Run a discli command with JSON output and return parsed result."""
+    result = subprocess.run(
+        ["discli", "--json", *args],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"[error] discli {' '.join(args)}: {result.stderr.strip()}", file=sys.stderr)
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+def run_discli_plain(*args):
+    """Run a discli command without JSON output."""
+    result = subprocess.run(
+        ["discli", *args],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"[error] discli {' '.join(args)}: {result.stderr.strip()}", file=sys.stderr)
+
+# Track active threads so we can handle follow-ups
+active_threads = {}  # thread_id -> {"author_id": str, "channel_id": str}
+
+# Start listening
+proc = subprocess.Popen(
+    ["discli", "--json", "listen", "--events", "messages"],
+    stdout=subprocess.PIPE,
+    text=True,
+)
+
+print("Thread support bot running. Ctrl+C to stop.", file=sys.stderr)
+
+for line in proc.stdout:
+    line = line.strip()
+    if not line:
+        continue
+
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+
+    channel_id = event.get("channel_id", "")
+    channel_name = event.get("channel", "")
+    author = event.get("author", "unknown")
+    author_id = event.get("author_id", "")
+    message_id = event.get("message_id", "")
+    content = event.get("content", "")
+
+    # --- New support request: bot mentioned in a watched channel ---
+    if (
+        event.get("mentions_bot")
+        and channel_name in SUPPORT_CHANNELS
+        and channel_id not in active_threads
+    ):
+        # Create a thread from the user's message
+        thread = run_discli(
+            "thread", "create",
+            channel_id,
+            message_id,
+            f"Support - {author}",
+        )
+
+        if thread and thread.get("id"):
+            thread_id = thread["id"]
+            active_threads[thread_id] = {
+                "author_id": author_id,
+                "channel_id": channel_id,
+            }
+
+            # Send welcome message in the thread
+            run_discli(
+                "thread", "send",
+                thread_id,
+                f"Hi {author}! I've created this thread for your request.\n\n"
+                f"**Your question:** {content}\n\n"
+                f"A team member will respond here shortly. "
+                f"Please share any additional details in this thread.",
+            )
+
+            print(f"[thread] Created '{thread.get('name')}' for {author}", file=sys.stderr)
+        continue
+
+    # --- Follow-up in an active thread ---
+    if channel_id in active_threads:
+        # Skip bot messages to avoid loops
+        if event.get("is_bot"):
+            continue
+
+        # Show typing while processing
+        subprocess.Popen(
+            ["discli", "typing", channel_id, "--duration", "3"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Simple acknowledgment (replace with AI in production)
+        thread_info = active_threads[channel_id]
+        run_discli(
+            "thread", "send",
+            channel_id,
+            f"Thanks for the additional details, {author}. "
+            f"A team member has been notified and will respond soon.",
+        )
+
+        print(f"[follow-up] {author} in thread {channel_id}", file=sys.stderr)
+```
+
+## Step-by-step explanation
+
+<Steps>
+  <Step title="Configure watched channels">
+    The `SUPPORT_CHANNELS` set defines which channels trigger thread creation. Only messages in these channels that @mention the bot will create a new thread.
+
+    ```python
+    SUPPORT_CHANNELS = {"support", "help", "questions"}
+    ```
+
+    <Callout type="tip">
+      You can use channel IDs instead of names for more precise matching, especially if you have multiple servers with similarly named channels.
+    </Callout>
+  </Step>
+
+  <Step title="Listen for messages">
+    The script starts a `discli listen` process that streams all messages as JSON. Each message includes the `channel` name, `channel_id`, and a `mentions_bot` flag.
+
+    ```bash
+    discli --json listen --events messages
+    ```
+  </Step>
+
+  <Step title="Create a thread">
+    When the bot is mentioned in a support channel, it creates a thread attached to the user's message. The thread name includes the author for easy identification.
+
+    ```bash
+    discli --json thread create CHANNEL_ID MESSAGE_ID "Support - Alice"
+    ```
+
+    The command returns a JSON object with the new thread's `id`, which the script stores for follow-up tracking.
+
+    ```json
+    {
+      "id": "1234567890123456789",
+      "name": "Support - Alice",
+      "parent_channel": "support",
+      "parent_channel_id": "9876543210987654321",
+      "message_id": "1111111111111111111"
+    }
+    ```
+  </Step>
+
+  <Step title="Send an acknowledgment">
+    The bot immediately sends a welcome message inside the thread so the user knows their request was received.
+
+    ```bash
+    discli thread send THREAD_ID "Hi Alice! I've created this thread for your request..."
+    ```
+  </Step>
+
+  <Step title="Handle follow-ups">
+    The script tracks active thread IDs in a dictionary. When a new message arrives in a known thread, it shows a typing indicator and responds. The example sends a simple acknowledgment, but this is where you would plug in AI or a ticket system.
+  </Step>
+</Steps>
+
+## Edge cases and pitfalls
+
+<Callout type="warning">
+  **CREATE_PUBLIC_THREADS permission.** Your bot must have the `Create Public Threads` permission in the channels it watches. Without this, the `thread create` command will fail with a 403 error.
+</Callout>
+
+<Callout type="warning">
+  **Thread auto-archive.** Discord automatically archives threads after 1 hour of inactivity (24 hours for boosted servers). Once archived, messages in the thread will not trigger events. If you need longer-lived threads, periodically send a keep-alive message or instruct users to unarchive.
+</Callout>
+
+<Callout type="warning">
+  **Thread limits.** Servers have a maximum of 1000 active threads. If your server handles high support volume, implement a thread-closing mechanism that archives resolved threads.
+</Callout>
+
+<Callout type="warning">
+  **Duplicate threads.** If a user mentions the bot multiple times quickly, the script might create duplicate threads. The `channel_id not in active_threads` check prevents this for the parent channel, but consider adding a per-user cooldown for robustness.
+</Callout>
+
+## Extending the system
+
+<CardGroup cols={2}>
+  <Card title="AI-powered responses">
+    Replace the static acknowledgment with Claude to provide instant answers in threads. See [AI Support Agent](/use-cases/ai-support-agent) for the integration pattern.
+  </Card>
+  <Card title="Resolution workflow">
+    Add a close command (e.g., "!resolved") that archives the thread and logs the resolution. Track open vs. resolved threads for metrics.
+  </Card>
+  <Card title="Human handoff">
+    When the AI cannot answer confidently, notify a support role with `discli message send "#staff-alerts" "New ticket needs human review: ..."` and include a link to the thread.
+  </Card>
+  <Card title="Priority routing">
+    Parse the initial message for keywords like "urgent", "broken", or "billing" and assign priority labels. Route high-priority threads to specific staff members via DM with `discli dm send`.
+  </Card>
+</CardGroup>

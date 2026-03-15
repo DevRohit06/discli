@@ -1,0 +1,154 @@
+---
+title: Quickstart
+description: Send your first Discord message in 2 minutes
+---
+
+# Quickstart
+
+Go from zero to sending Discord messages in under 2 minutes. This guide assumes you have already [installed discli](/getting-started/installation) and have a Discord bot token. If you need a token, follow the [Your First Bot](/getting-started/your-first-bot) guide first.
+
+<Steps>
+  <Step title="Set your bot token">
+    Store your Discord bot token so discli can authenticate:
+
+    ```bash
+    discli config set token YOUR_BOT_TOKEN
+    ```
+
+    ```
+    Set token.
+    ```
+
+    This saves the token to `~/.discli/config.json`. You only need to do this once.
+
+    <Callout type="tip">
+      You can also pass the token per-command with `--token YOUR_BOT_TOKEN` or set the `DISCORD_BOT_TOKEN` environment variable. See [Configuration](/getting-started/configuration) for details.
+    </Callout>
+  </Step>
+
+  <Step title="Send a message">
+    Send a message to a channel your bot has access to:
+
+    ```bash
+    discli message send "#general" "Hello from discli!"
+    ```
+
+    ```
+    Message sent to #general (ID: 1234567890123456789)
+    ```
+
+    Check your Discord server — the message should appear in the channel.
+
+    <Callout type="note">
+      **Channel identifiers:** You can reference channels by name with a `#` prefix (e.g., `#general`) or by their raw numeric ID (e.g., `1234567890123456789`). Channel names are matched within the server the bot has access to. If your bot is in multiple servers with identically named channels, use the numeric ID to be precise.
+    </Callout>
+  </Step>
+
+  <Step title="Read messages">
+    Fetch the most recent messages from a channel:
+
+    ```bash
+    discli message list "#general" --limit 5
+    ```
+
+    ```
+    [2026-03-15 10:32] discli-bot: Hello from discli!
+    [2026-03-15 10:30] Alice: Has anyone tried the new CLI tool?
+    [2026-03-15 10:28] Bob: Good morning everyone!
+    [2026-03-15 10:15] Alice: Welcome to the server!
+    [2026-03-15 09:45] Bob: Hey folks
+    ```
+
+    The output shows the most recent messages, newest first, with timestamps and authors.
+  </Step>
+
+  <Step title="Try JSON output">
+    Add the `--json` flag to get structured output, perfect for piping to other tools or feeding to an AI agent:
+
+    ```bash
+    discli --json message list "#general" --limit 3
+    ```
+
+    ```json
+    [
+      {
+        "id": "1234567890123456789",
+        "author": "discli-bot",
+        "author_id": "9876543210987654321",
+        "content": "Hello from discli!",
+        "timestamp": "2026-03-15T10:32:00+00:00",
+        "channel": "general",
+        "channel_id": "1111111111111111111",
+        "is_bot": true
+      },
+      {
+        "id": "1234567890123456780",
+        "author": "Alice",
+        "author_id": "2222222222222222222",
+        "content": "Has anyone tried the new CLI tool?",
+        "timestamp": "2026-03-15T10:30:00+00:00",
+        "channel": "general",
+        "channel_id": "1111111111111111111",
+        "is_bot": false
+      },
+      {
+        "id": "1234567890123456770",
+        "author": "Bob",
+        "author_id": "3333333333333333333",
+        "content": "Good morning everyone!",
+        "timestamp": "2026-03-15T10:28:00+00:00",
+        "channel": "general",
+        "channel_id": "1111111111111111111",
+        "is_bot": false
+      }
+    ]
+    ```
+
+    <Callout type="tip">
+      The `--json` flag works with every command. It is placed **before** the subcommand: `discli --json message list`, not `discli message list --json`.
+    </Callout>
+  </Step>
+</Steps>
+
+## What else can you do?
+
+Here are a few more commands to try:
+
+```bash
+# List servers your bot is in
+discli server list
+
+# List channels in a server
+discli channel list "My Server"
+
+# Send a DM to a user
+discli dm send @username "Hey there!"
+
+# React to a message
+discli reaction add "#general" MESSAGE_ID "👍"
+
+# Search messages
+discli message search "#general" "search term"
+
+# Start a real-time event stream
+discli listen
+```
+
+Run `discli --help` or `discli <command> --help` to explore all available commands and options.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Your First Bot" href="/getting-started/your-first-bot">
+    Build a working Discord bot agent from scratch with discli serve.
+  </Card>
+  <Card title="Configuration" href="/getting-started/configuration">
+    Learn about token management, permission profiles, and config options.
+  </Card>
+  <Card title="CLI Usage Guide" href="/guides/cli-usage">
+    Deep dive into all available commands and day-to-day usage patterns.
+  </Card>
+  <Card title="Building Agents" href="/guides/building-agents">
+    Build progressively more autonomous AI agents on top of discli.
+  </Card>
+</CardGroup>

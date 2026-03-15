@@ -1,0 +1,567 @@
+---
+title: Serve Mode
+description: Run a persistent bot with bidirectional JSONL communication
+---
+
+`discli serve` starts a long-running bot process that communicates over stdin and stdout using JSONL (JSON Lines). This is the foundation for building real-time Discord agents.
+
+## Why Serve Mode?
+
+Standard discli commands are fire-and-forget: each one connects to Discord, performs an action, and disconnects. This is fine for scripts and one-off operations, but not for agents that need to:
+
+- React to events in real-time
+- Stream responses token-by-token
+- Manage typing indicators
+- Handle slash commands
+- Perform multiple actions without reconnecting
+
+Serve mode solves this by maintaining a single persistent Discord WebSocket connection and exposing it through JSONL over stdin/stdout.
+
+```
+┌──────────────┐    stdin (JSONL)     ┌──────────────────┐
+│  Your Agent  │ ──────────────────▶  │                  │
+│  (Python,    │                      │   discli serve   │──── Discord API
+│   Node, etc) │ ◀──────────────────  │                  │
+└──────────────┘    stdout (JSONL)    └──────────────────┘
+```
+
+## Starting Serve Mode
+
+```bash
+discli serve
+```
+
+### Flags
+
+| Flag | Description | Example |
+|------|------------|---------|
+| `--server` | Filter events to one server | `--server "My Server"` |
+| `--channel` | Filter events to one channel | `--channel "#general"` |
+| `--events` | Comma-separated event types | `--events messages,reactions,members` |
+| `--include-self` / `--no-include-self` | Include bot's own messages (default: include) | `--no-include-self` |
+| `--slash-commands` | JSON file with slash command definitions | `--slash-commands commands.json` |
+| `--status` | Bot status on connect | `--status idle` |
+| `--activity` | Activity type | `--activity watching` |
+| `--activity-text` | Activity text | `--activity-text "for commands"` |
+| `--profile` | Permission profile | `--profile chat` |
+
+### Common startup patterns
+
+<CodeGroup>
+
+```bash Basic
+discli serve
+```
+
+```bash Filtered
+discli serve --server "My Server" --channel "#support" --events messages
+```
+
+```bash With presence
+discli serve --status online --activity watching --activity-text "for questions"
+```
+
+```bash With slash commands
+discli serve --slash-commands commands.json --events messages
+```
+
+```bash With safety
+discli serve --profile chat --events messages,members
+```
+
+</CodeGroup>
+
+## The JSONL Protocol
+
+Communication is line-delimited JSON. Each line is a complete JSON object followed by a newline character.
+
+### Events (stdout)
+
+discli serve writes events to stdout. Your agent reads these line by line.
+
+```json
+{"event": "ready", "bot_id": "123456", "bot_name": "MyBot#1234"}
+{"event": "message", "channel_id": "789", "content": "hello", "author": "alice", "author_id": "456", "message_id": "101112", "mentions_bot": true, "is_dm": false, ...}
+{"event": "response", "req_id": "req-1", "ok": true, "message_id": "131415"}
+```
+
+#### Event Types
+
+<Accordion title="ready">
+Emitted once when the bot connects to the Discord gateway.
+
+```json
+{
+  "event": "ready",
+  "bot_id": "123456789",
+  "bot_name": "MyBot#1234"
+}
+```
+</Accordion>
+
+<Accordion title="message">
+Emitted for each new message in channels the bot can see.
+
+```json
+{
+  "event": "message",
+  "server": "My Server",
+  "server_id": "111222333",
+  "channel": "general",
+  "channel_id": "444555666",
+  "author": "alice#1234",
+  "author_id": "777888999",
+  "is_bot": false,
+  "content": "Hello bot!",
+  "timestamp": "2025-03-15T10:30:00+00:00",
+  "message_id": "101010101010",
+  "mentions_bot": true,
+  "is_dm": false,
+  "attachments": [],
+  "reply_to": null
+}
+```
+</Accordion>
+
+<Accordion title="message_edit">
+Emitted when a message is edited.
+
+```json
+{
+  "event": "message_edit",
+  "server": "My Server",
+  "server_id": "111222333",
+  "channel": "general",
+  "channel_id": "444555666",
+  "author": "alice#1234",
+  "author_id": "777888999",
+  "message_id": "101010101010",
+  "old_content": "Hello",
+  "new_content": "Hello bot!",
+  "timestamp": "2025-03-15T10:31:00+00:00"
+}
+```
+</Accordion>
+
+<Accordion title="message_delete">
+Emitted when a message is deleted.
+
+```json
+{
+  "event": "message_delete",
+  "server": "My Server",
+  "server_id": "111222333",
+  "channel": "general",
+  "channel_id": "444555666",
+  "author": "alice#1234",
+  "author_id": "777888999",
+  "message_id": "101010101010",
+  "content": "Hello bot!"
+}
+```
+</Accordion>
+
+<Accordion title="reaction_add / reaction_remove">
+Emitted when a reaction is added or removed.
+
+```json
+{
+  "event": "reaction_add",
+  "server": "My Server",
+  "channel": "general",
+  "channel_id": "444555666",
+  "message_id": "101010101010",
+  "emoji": "👍",
+  "user": "alice#1234",
+  "user_id": "777888999"
+}
+```
+</Accordion>
+
+<Accordion title="member_join / member_remove">
+Emitted when a member joins or leaves a server.
+
+```json
+{
+  "event": "member_join",
+  "server": "My Server",
+  "server_id": "111222333",
+  "member": "bob#5678",
+  "member_id": "999000111"
+}
+```
+</Accordion>
+
+<Accordion title="slash_command">
+Emitted when a user invokes a registered slash command.
+
+```json
+{
+  "event": "slash_command",
+  "command": "ask",
+  "args": {"question": "What is discli?"},
+  "channel_id": "444555666",
+  "user": "alice#1234",
+  "user_id": "777888999",
+  "guild_id": "111222333",
+  "interaction_token": "abc-123-def",
+  "is_admin": false
+}
+```
+</Accordion>
+
+<Accordion title="response">
+Returned after your agent sends an action via stdin. Correlates via `req_id`.
+
+```json
+{
+  "event": "response",
+  "req_id": "req-1",
+  "ok": true,
+  "message_id": "131415161718"
+}
+```
+</Accordion>
+
+<Accordion title="error">
+Emitted when something goes wrong.
+
+```json
+{
+  "event": "error",
+  "message": "Channel not found: 999"
+}
+```
+</Accordion>
+
+### Actions (stdin)
+
+Your agent writes JSONL actions to stdin. Every action must have an `action` field.
+
+```json
+{"action": "send", "channel_id": "444555666", "content": "Hello!", "req_id": "req-1"}
+```
+
+The optional `req_id` field lets you correlate responses. If you include it, the response event will echo it back.
+
+#### Full Action Reference
+
+<Tabs>
+<Tab title="Messaging">
+
+| Action | Required Fields | Optional Fields |
+|--------|----------------|----------------|
+| `send` | `channel_id`, `content` | `files`, `req_id` |
+| `reply` | `channel_id`, `message_id`, `content` | `files`, `req_id` |
+| `edit` | `channel_id`, `message_id`, `content` | `req_id` |
+| `delete` | `channel_id`, `message_id` | `req_id` |
+| `dm_send` | `user_id`, `content` | `req_id` |
+
+```json
+{"action": "send", "channel_id": "444555666", "content": "Hello world!"}
+{"action": "reply", "channel_id": "444555666", "message_id": "101010", "content": "Got it!"}
+{"action": "edit", "channel_id": "444555666", "message_id": "131415", "content": "Updated text"}
+{"action": "delete", "channel_id": "444555666", "message_id": "131415"}
+{"action": "dm_send", "user_id": "777888999", "content": "Hey there!"}
+```
+
+</Tab>
+<Tab title="Streaming">
+
+| Action | Required Fields | Optional Fields |
+|--------|----------------|----------------|
+| `stream_start` | `channel_id` | `reply_to`, `interaction_token`, `req_id` |
+| `stream_chunk` | `stream_id`, `content` | `req_id` |
+| `stream_end` | `stream_id` | `req_id` |
+
+```json
+{"action": "stream_start", "channel_id": "444555666", "req_id": "s1"}
+{"action": "stream_chunk", "stream_id": "abc123", "content": "Hello "}
+{"action": "stream_chunk", "stream_id": "abc123", "content": "world!"}
+{"action": "stream_end", "stream_id": "abc123", "req_id": "s2"}
+```
+
+</Tab>
+<Tab title="Threads">
+
+| Action | Required Fields | Optional Fields |
+|--------|----------------|----------------|
+| `thread_create` | `channel_id`, `name` | `message_id`, `content`, `auto_archive_duration`, `req_id` |
+| `thread_send` | `thread_id`, `content` | `files`, `req_id` |
+| `thread_list` | `channel_id` | `req_id` |
+
+```json
+{"action": "thread_create", "channel_id": "444555666", "name": "Discussion", "content": "Let's talk"}
+{"action": "thread_send", "thread_id": "999000111", "content": "Replying in thread"}
+{"action": "thread_list", "channel_id": "444555666"}
+```
+
+</Tab>
+<Tab title="Reactions & Typing">
+
+| Action | Required Fields | Optional Fields |
+|--------|----------------|----------------|
+| `reaction_add` | `channel_id`, `message_id`, `emoji` | `req_id` |
+| `reaction_remove` | `channel_id`, `message_id`, `emoji` | `req_id` |
+| `typing_start` | `channel_id` | `req_id` |
+| `typing_stop` | `channel_id` | `req_id` |
+
+```json
+{"action": "typing_start", "channel_id": "444555666"}
+{"action": "reaction_add", "channel_id": "444555666", "message_id": "101010", "emoji": "👍"}
+{"action": "typing_stop", "channel_id": "444555666"}
+```
+
+</Tab>
+<Tab title="Queries">
+
+| Action | Required Fields | Optional Fields |
+|--------|----------------|----------------|
+| `message_list` | `channel_id` | `limit`, `req_id` |
+| `message_get` | `channel_id`, `message_id` | `req_id` |
+| `message_search` | `channel_id` | `query`, `limit`, `author`, `req_id` |
+| `message_pin` | `channel_id`, `message_id` | `req_id` |
+| `message_unpin` | `channel_id`, `message_id` | `req_id` |
+| `channel_list` | | `guild_id`, `req_id` |
+| `channel_info` | `channel_id` | `req_id` |
+| `channel_create` | `guild_id`, `name` | `type`, `req_id` |
+| `server_list` | | `req_id` |
+| `server_info` | `guild_id` | `req_id` |
+| `member_list` | `guild_id` | `limit`, `req_id` |
+| `member_info` | `guild_id`, `member_id` | `req_id` |
+| `role_list` | `guild_id` | `req_id` |
+| `role_assign` | `guild_id`, `member_id`, `role_id` | `req_id` |
+| `role_remove` | `guild_id`, `member_id`, `role_id` | `req_id` |
+
+</Tab>
+<Tab title="Other">
+
+| Action | Required Fields | Optional Fields |
+|--------|----------------|----------------|
+| `presence` | | `status`, `activity_type`, `activity_text`, `req_id` |
+| `interaction_followup` | `interaction_token`, `content` | `req_id` |
+| `poll_send` | `channel_id`, `question`, `answers` | `duration_hours`, `multiple`, `content`, `req_id` |
+
+```json
+{"action": "presence", "status": "dnd", "activity_type": "watching", "activity_text": "for issues"}
+{"action": "interaction_followup", "interaction_token": "abc-123", "content": "Here's your answer!"}
+{"action": "poll_send", "channel_id": "444555666", "question": "Best language?", "answers": ["Python", "Rust", "Go"]}
+```
+
+</Tab>
+</Tabs>
+
+## Request/Response Correlation
+
+Include a `req_id` in your action to match it with the response:
+
+```json
+→ stdin:  {"action": "send", "channel_id": "444555666", "content": "Hello!", "req_id": "msg-1"}
+← stdout: {"event": "response", "req_id": "msg-1", "ok": true, "message_id": "131415161718"}
+```
+
+This is critical for actions where you need the result, like `stream_start` (which returns a `stream_id`) or `thread_create` (which returns a `thread_id`).
+
+<Callout type="tip">
+Use incrementing integers or UUIDs for `req_id` values. Keep a dictionary mapping `req_id` to callback or queue so you can dispatch responses when they arrive.
+</Callout>
+
+## Python Integration Patterns
+
+### Synchronous (threading)
+
+The simplest approach. Uses a background thread to read events while the main thread processes them.
+
+```python
+import json
+import subprocess
+import threading
+from queue import Queue
+
+
+class ServeClient:
+    def __init__(self, **kwargs):
+        cmd = ["discli", "serve"]
+        for key, value in kwargs.items():
+            cmd.extend([f"--{key.replace('_', '-')}", str(value)])
+
+        self.proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        self.events = Queue()
+        self.pending = {}
+        self._counter = 0
+
+        threading.Thread(target=self._reader, daemon=True).start()
+
+    def _reader(self):
+        for line in self.proc.stdout:
+            data = json.loads(line.strip())
+            rid = data.get("req_id")
+            if rid in self.pending:
+                self.pending[rid].put(data)
+            else:
+                self.events.put(data)
+
+    def send(self, action, wait=False):
+        self._counter += 1
+        rid = f"r{self._counter}"
+        action["req_id"] = rid
+        if wait:
+            q = Queue()
+            self.pending[rid] = q
+        self.proc.stdin.write(json.dumps(action) + "\n")
+        self.proc.stdin.flush()
+        if wait:
+            result = q.get(timeout=10)
+            del self.pending[rid]
+            return result
+
+    def next_event(self):
+        return self.events.get()
+
+
+# Usage
+client = ServeClient(events="messages")
+ready = client.next_event()  # {"event": "ready", ...}
+
+while True:
+    event = client.next_event()
+    if event["event"] == "message" and event.get("mentions_bot"):
+        client.send({
+            "action": "reply",
+            "channel_id": event["channel_id"],
+            "message_id": event["message_id"],
+            "content": "Hello!",
+        })
+```
+
+### Asyncio
+
+For agents that need to run concurrent tasks (timers, HTTP requests, etc.).
+
+```python
+import asyncio
+import json
+
+
+class AsyncServeClient:
+    def __init__(self):
+        self.proc = None
+        self.pending = {}
+        self._counter = 0
+
+    async def start(self, **kwargs):
+        cmd = ["discli", "serve"]
+        for key, value in kwargs.items():
+            cmd.extend([f"--{key.replace('_', '-')}", str(value)])
+
+        self.proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+        )
+
+    async def send(self, action, wait=False):
+        self._counter += 1
+        rid = f"r{self._counter}"
+        action["req_id"] = rid
+        future = None
+        if wait:
+            future = asyncio.get_event_loop().create_future()
+            self.pending[rid] = future
+        self.proc.stdin.write((json.dumps(action) + "\n").encode())
+        await self.proc.stdin.drain()
+        if wait:
+            return await asyncio.wait_for(future, timeout=10)
+
+    async def read_events(self):
+        while True:
+            line = await self.proc.stdout.readline()
+            if not line:
+                break
+            data = json.loads(line.decode().strip())
+            rid = data.get("req_id")
+            if rid in self.pending:
+                self.pending.pop(rid).set_result(data)
+            else:
+                yield data
+
+
+async def main():
+    client = AsyncServeClient()
+    await client.start(events="messages")
+
+    async for event in client.read_events():
+        if event["event"] == "ready":
+            print(f"Ready as {event['bot_name']}")
+        elif event["event"] == "message" and event.get("mentions_bot"):
+            await client.send({
+                "action": "reply",
+                "channel_id": event["channel_id"],
+                "message_id": event["message_id"],
+                "content": "Hello!",
+            })
+
+asyncio.run(main())
+```
+
+<Callout type="note">
+The asyncio pattern works well on Linux and macOS. On Windows, `asyncio.create_subprocess_exec` uses the ProactorEventLoop, which handles subprocess pipes correctly.
+</Callout>
+
+## Error Handling
+
+Errors from actions are returned as response events with an `error` field:
+
+```json
+← {"event": "response", "req_id": "req-1", "error": "Channel not found: 999"}
+```
+
+Protocol-level errors (invalid JSON) are emitted as error events:
+
+```json
+← {"event": "error", "message": "Invalid JSON: {bad json"}
+```
+
+Always check for the `error` field in responses before using the result:
+
+```python
+result = client.send({"action": "send", "channel_id": "999", "content": "test"}, wait=True)
+if "error" in result:
+    print(f"Action failed: {result['error']}")
+else:
+    print(f"Sent message: {result['message_id']}")
+```
+
+## Windows Stdin Note
+
+On Windows, asyncio's `ProactorEventLoop` cannot use `connect_read_pipe` for stdin when the process is piped from a parent process. discli works around this by using a background thread to read stdin and feeding lines into an asyncio queue.
+
+This is handled internally by discli serve -- you do not need to worry about it. However, if you are writing your own stdin reader for a different purpose, be aware of this limitation.
+
+## Lifecycle
+
+<Steps>
+<Step title="Start">
+Launch `discli serve` as a subprocess with stdin/stdout pipes.
+</Step>
+<Step title="Ready">
+Wait for the `{"event": "ready"}` event on stdout. The bot is now connected to Discord.
+</Step>
+<Step title="Operate">
+Read events from stdout. Send actions to stdin. Use `req_id` to correlate responses.
+</Step>
+<Step title="Shutdown">
+Close stdin. The serve process will close the Discord connection and exit. You can also send a SIGINT/Ctrl+C.
+</Step>
+</Steps>
+
+## Next Steps
+
+- [Building Agents](/guides/building-agents) -- See serve mode in action across 5 levels of agent complexity
+- [Streaming Responses](/guides/streaming-responses) -- Stream AI responses token-by-token
+- [Slash Commands](/guides/slash-commands) -- Register and handle slash commands through serve mode

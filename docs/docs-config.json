@@ -1,0 +1,156 @@
+{
+  "metadata": {
+    "name": "discli",
+    "description": "Discord CLI for AI Agents & Humans — documentation",
+    "url": "https://discli.dev"
+  },
+  "branding": {
+    "favicon": "/logo.svg",
+    "logo": {
+      "light": "/logo.svg",
+      "dark": "/logo.svg",
+      "href": "/"
+    },
+    "colors": {
+      "primary": "#5865F2",
+      "secondary": "#818cf8",
+      "accent": "#5865F2",
+      "background": "#fafafa",
+      "text": "#111111"
+    },
+    "fonts": {
+      "heading": "DM Sans",
+      "body": "DM Sans",
+      "code": "JetBrains Mono"
+    }
+  },
+  "navigation": {
+    "navbar": {
+      "links": [
+        { "label": "GitHub", "href": "https://github.com/DevRohit06/discli" },
+        { "label": "PyPI", "href": "https://pypi.org/project/discord-cli-agent/" }
+      ],
+      "cta": { "label": "Get Started", "href": "/getting-started/installation" }
+    },
+    "sidebar": [
+      {
+        "label": "Getting Started",
+        "items": [
+          { "label": "Installation", "href": "/getting-started/installation" },
+          { "label": "Quickstart", "href": "/getting-started/quickstart" },
+          { "label": "Configuration", "href": "/getting-started/configuration" },
+          { "label": "Your First Bot", "href": "/getting-started/your-first-bot" }
+        ]
+      },
+      {
+        "label": "Guides",
+        "items": [
+          { "label": "CLI Usage", "href": "/guides/cli-usage" },
+          { "label": "Building Agents", "href": "/guides/building-agents" },
+          { "label": "Serve Mode", "href": "/guides/serve-mode" },
+          { "label": "Streaming Responses", "href": "/guides/streaming-responses" },
+          { "label": "Slash Commands", "href": "/guides/slash-commands" },
+          { "label": "Security & Permissions", "href": "/guides/security-permissions" },
+          { "label": "Scripting & Automation", "href": "/guides/scripting-automation" }
+        ]
+      },
+      {
+        "label": "Use Cases",
+        "items": [
+          { "label": "AI Support Agent", "href": "/use-cases/ai-support-agent" },
+          { "label": "Moderation Bot", "href": "/use-cases/moderation-bot" },
+          { "label": "Thread-Based Support", "href": "/use-cases/thread-based-support" },
+          { "label": "Channel Logger", "href": "/use-cases/channel-logger" },
+          { "label": "CI Notifications", "href": "/use-cases/ci-notifications" }
+        ]
+      },
+      {
+        "label": "Architecture",
+        "items": [
+          { "label": "Overview", "href": "/architecture/overview" },
+          { "label": "Serve Protocol", "href": "/architecture/serve-protocol" },
+          { "label": "Security Model", "href": "/architecture/security-model" },
+          { "label": "Token Resolution", "href": "/architecture/token-resolution" }
+        ]
+      },
+      {
+        "label": "Comparisons",
+        "items": [
+          { "label": "vs Discord Libraries", "href": "/comparisons/vs-discord-libraries" },
+          { "label": "vs CLI Tools", "href": "/comparisons/vs-cli-tools" },
+          { "label": "vs Hosted Bots", "href": "/comparisons/vs-hosted-bots" },
+          { "label": "Why discli?", "href": "/comparisons/why-discli" }
+        ]
+      },
+      {
+        "label": "Troubleshooting",
+        "items": [
+          { "label": "Common Issues", "href": "/troubleshooting/common-issues" },
+          { "label": "Windows Quirks", "href": "/troubleshooting/windows-quirks" },
+          { "label": "Edge Cases", "href": "/troubleshooting/edge-cases" },
+          { "label": "FAQ", "href": "/troubleshooting/faq" }
+        ]
+      },
+      {
+        "label": "Reference",
+        "items": [
+          { "label": "CLI Commands", "href": "/reference/cli-commands" },
+          { "label": "Serve Actions", "href": "/reference/serve-actions" },
+          { "label": "Serve Events", "href": "/reference/serve-events" },
+          { "label": "Permission Profiles", "href": "/reference/permission-profiles" }
+        ]
+      }
+    ]
+  },
+  "landing": {
+    "type": "custom",
+    "source": "_landing",
+    "navbar": false,
+    "footer": false
+  },
+  "footer": {
+    "layout": "full",
+    "tagline": "Discord CLI for AI Agents & Humans",
+    "copyright": "\u00a9 {year} Rohit Kushwaha. MIT License.",
+    "showBranding": true,
+    "socials": {
+      "github": "https://github.com/DevRohit06/discli"
+    },
+    "links": [
+      {
+        "title": "Docs",
+        "items": [
+          { "label": "Getting Started", "href": "/getting-started/installation" },
+          { "label": "Guides", "href": "/guides/cli-usage" },
+          { "label": "Reference", "href": "/reference/cli-commands" }
+        ]
+      },
+      {
+        "title": "Community",
+        "items": [
+          { "label": "GitHub", "href": "https://github.com/DevRohit06/discli" },
+          { "label": "PyPI", "href": "https://pypi.org/project/discord-cli-agent/" },
+          { "label": "Contributing", "href": "https://github.com/DevRohit06/discli/blob/main/CONTRIBUTING.md" }
+        ]
+      }
+    ]
+  },
+  "theme": {
+    "mode": "auto",
+    "defaultDark": true
+  },
+  "search": {
+    "enabled": true,
+    "provider": "local",
+    "placeholder": "Search docs..."
+  },
+  "integrations": {
+    "editPage": {
+      "enabled": true,
+      "pattern": "https://github.com/DevRohit06/discli/edit/main/docs/{path}"
+    },
+    "lastUpdated": {
+      "enabled": true
+    }
+  }
+}

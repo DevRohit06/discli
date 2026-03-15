@@ -1,7 +1,8 @@
 <p align="center">
-  <h1 align="center">discli</h1>
-  <p align="center">Discord CLI for AI agents and humans</p>
+  <img src="docs/public/logo.svg" width="80" height="80" alt="discli logo" />
 </p>
+<h1 align="center">discli</h1>
+<p align="center">Discord CLI for AI agents and humans</p>
 
 <p align="center">
   <a href="https://pypi.org/project/discord-cli-agent/"><img src="https://img.shields.io/pypi/v/discord-cli-agent?color=blue&label=PyPI" alt="PyPI"></a>

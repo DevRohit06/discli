@@ -1,0 +1,216 @@
+---
+title: Moderation Bot
+description: Auto-detect spam, warn users, and kick repeat offenders
+---
+
+# Moderation Bot
+
+Build an automated moderation system that detects banned content, issues warnings, and escalates to kicks for repeat offenders -- all using discli commands from a simple Python script.
+
+## The problem
+
+Your Discord server is growing and spam, scam links, and toxic content are getting harder to manage manually. You need automated moderation that acts instantly, tracks violations per user, and escalates enforcement progressively.
+
+## The solution
+
+A Python script that:
+
+1. Streams all messages in real time via `discli listen`
+2. Checks each message against a ban list (words, patterns, or AI classification)
+3. Deletes offending messages with `discli message delete`
+4. Warns the user with `discli message send`
+5. Kicks repeat offenders with `discli member kick`
+
+No database required for the basic version -- the script tracks violations in memory.
+
+## Full working code
+
+```python
+#!/usr/bin/env python3
+"""Moderation Bot — auto-detect spam and enforce rules with discli."""
+
+import json
+import subprocess
+import sys
+from collections import defaultdict
+
+# --- Configuration ---
+BANNED_WORDS = {"spam", "scam", "phishing", "free nitro", "discord.gg/scam"}
+WARN_THRESHOLD = 3  # Kicks after this many violations
+
+def run_discli(*args):
+    """Run a discli command and return the result."""
+    result = subprocess.run(
+        ["discli", "-y", *args],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"[error] discli {' '.join(args)}: {result.stderr.strip()}", file=sys.stderr)
+    return result
+
+def run_discli_json(*args):
+    """Run a discli command with JSON output."""
+    result = subprocess.run(
+        ["discli", "--json", "-y", *args],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+# Track violations per user
+violations = defaultdict(int)
+
+# Start listening for all messages (including from bots is optional)
+proc = subprocess.Popen(
+    ["discli", "--json", "listen", "--events", "messages"],
+    stdout=subprocess.PIPE,
+    text=True,
+)
+
+print("Moderation bot running. Ctrl+C to stop.", file=sys.stderr)
+
+for line in proc.stdout:
+    line = line.strip()
+    if not line:
+        continue
+
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+
+    content = event.get("content", "").lower()
+    author = event.get("author", "unknown")
+    author_id = event.get("author_id", "")
+    channel_id = event.get("channel_id", "")
+    message_id = event.get("message_id", "")
+    server = event.get("server", "")
+
+    # Check for banned content
+    found = [w for w in BANNED_WORDS if w in content]
+    if not found:
+        continue
+
+    print(f"[violation] {author} ({author_id}): matched {found}", file=sys.stderr)
+
+    # Step 1: Delete the offending message
+    run_discli("message", "delete", channel_id, message_id)
+
+    # Step 2: Track and escalate
+    violations[author_id] += 1
+    count = violations[author_id]
+
+    if count >= WARN_THRESHOLD:
+        # Kick the user
+        run_discli(
+            "member", "kick", server, author_id,
+            "--reason", f"Automated: {count} content violations",
+        )
+        run_discli(
+            "message", "send", channel_id,
+            f"**{author}** has been kicked after {count} violations.",
+        )
+        del violations[author_id]
+        print(f"[kicked] {author} ({author_id}) after {count} violations", file=sys.stderr)
+    else:
+        remaining = WARN_THRESHOLD - count
+        run_discli(
+            "message", "send", channel_id,
+            f"{author}, your message was removed for violating server rules. "
+            f"**{remaining}** warning(s) remaining before a kick.",
+        )
+        print(f"[warned] {author} ({author_id}): {count}/{WARN_THRESHOLD}", file=sys.stderr)
+```
+
+## Step-by-step explanation
+
+<Steps>
+  <Step title="Configure your bot permissions">
+    The bot needs these Discord permissions to moderate:
+
+    - **Read Messages** -- to receive the event stream
+    - **Manage Messages** -- to delete offending messages
+    - **Kick Members** -- to remove repeat offenders
+
+    Set these in the Discord Developer Portal under your bot's OAuth2 settings.
+
+    <Callout type="tip">
+      Use `discli --profile moderation` to restrict the bot to only moderation commands. See [Security & Permissions](/guides/security-permissions) for details.
+    </Callout>
+  </Step>
+
+  <Step title="Define your rules">
+    The `BANNED_WORDS` set contains lowercase strings to match against message content. Matching is substring-based, so `"scam"` will catch `"this is a scam link"`.
+
+    ```python
+    BANNED_WORDS = {"spam", "scam", "phishing", "free nitro"}
+    WARN_THRESHOLD = 3
+    ```
+  </Step>
+
+  <Step title="Listen for messages">
+    The script starts `discli listen --events messages` as a long-running subprocess. Each message arrives as a JSON line on stdout.
+
+    ```bash
+    discli --json listen --events messages
+    ```
+  </Step>
+
+  <Step title="Delete and warn">
+    When a violation is detected, the script immediately deletes the message using `discli message delete`, then sends a warning. The `-y` flag skips the confirmation prompt that discli normally shows for destructive actions.
+
+    ```bash
+    discli -y message delete CHANNEL_ID MESSAGE_ID
+    discli message send CHANNEL_ID "Warning message here"
+    ```
+  </Step>
+
+  <Step title="Escalate to kick">
+    After `WARN_THRESHOLD` violations, the script kicks the user and posts a notification. The `--reason` flag records the reason in Discord's audit log.
+
+    ```bash
+    discli -y member kick "My Server" USER_ID --reason "Automated: 3 content violations"
+    ```
+  </Step>
+</Steps>
+
+## Edge cases and pitfalls
+
+<Callout type="warning">
+  **Bot permission hierarchy.** Discord prevents bots from kicking members with a role higher than the bot's highest role. If the bot tries to kick a moderator or admin, the command will fail. Always assign the bot's role above regular member roles but below admin roles.
+</Callout>
+
+<Callout type="warning">
+  **Mass spam floods.** If a spammer sends dozens of messages per second, the bot will try to delete each one individually, which may hit Discord's rate limit (5 requests per 5 seconds per channel). For mass spam, consider banning the user immediately rather than warning first.
+</Callout>
+
+<Callout type="warning">
+  **Case sensitivity and Unicode.** The example uses `.lower()` for matching, but sophisticated spammers use Unicode lookalikes (e.g., using Cyrillic characters). For production use, normalize Unicode with `unicodedata.normalize("NFKC", content)` before matching.
+</Callout>
+
+<Callout type="warning">
+  **In-memory state.** The `violations` dictionary resets when the script restarts. For persistence, write violation counts to a JSON file or SQLite database.
+</Callout>
+
+## Extending the bot
+
+<CardGroup cols={2}>
+  <Card title="AI content analysis">
+    Replace keyword matching with Claude to detect nuanced toxicity, context-dependent spam, and social engineering attempts. See [AI Support Agent](/use-cases/ai-support-agent) for the Claude integration pattern.
+  </Card>
+  <Card title="Configurable rules per server">
+    Load rules from a JSON config file so each server can customize banned words, thresholds, and actions without changing code.
+  </Card>
+  <Card title="Temp bans instead of kicks">
+    Use `discli member ban` with a scheduled `discli member unban` to implement temporary bans. Track ban expiry times in a database.
+  </Card>
+  <Card title="Audit logging">
+    Log every moderation action to a dedicated `#mod-log` channel using `discli message send "#mod-log" "..."`. This gives your mod team full visibility.
+  </Card>
+</CardGroup>

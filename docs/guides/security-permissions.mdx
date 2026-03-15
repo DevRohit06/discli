@@ -1,0 +1,366 @@
+---
+title: Security & Permissions
+description: Control what your agent can do with permission profiles and audit logging
+---
+
+When you give an AI agent access to Discord, you are giving it the ability to send messages, kick members, delete channels, and more. Permission profiles and audit logging let you set boundaries and maintain accountability.
+
+## Why This Matters
+
+Consider an autonomous agent that:
+
+- Misinterprets a message and kicks a member instead of sending a warning
+- Gets caught in a loop and floods a channel with messages
+- Receives a prompt injection through a user message and executes unintended actions
+
+Permission profiles prevent these scenarios by restricting which commands the agent can execute, regardless of what it tries to do.
+
+## Permission Profiles
+
+discli ships with four built-in profiles:
+
+<Tabs>
+<Tab title="full">
+**Full access to all commands.** No restrictions.
+
+```
+Allowed: *
+Denied: (none)
+```
+
+Use for: trusted scripts running in controlled environments, admin bots operated by humans.
+</Tab>
+<Tab title="chat">
+**Messages, reactions, threads, typing, DMs, listening, and server info.** Cannot kick, ban, delete channels, or manage roles destructively.
+
+```
+Allowed: message, reaction, thread, typing, dm, listen, serve, config, server
+Denied: member kick, member ban, member unban, channel delete, role delete, role create, channel create
+```
+
+Use for: AI support agents, chatbots, conversational bots. This is the recommended default for autonomous agents.
+</Tab>
+<Tab title="readonly">
+**Read-only operations only.** Can list, search, and inspect, but cannot send messages or modify anything.
+
+```
+Allowed: message list, message get, message search, message history,
+         channel list, channel info, server list, server info,
+         role list, member list, member info, reaction list,
+         thread list, listen, config show
+Denied: * (everything else)
+```
+
+Use for: monitoring, analytics, dashboards, log exporters.
+</Tab>
+<Tab title="moderation">
+**Full access including moderation.** Same as `full` but semantically indicates a moderation role.
+
+```
+Allowed: *
+Denied: (none)
+```
+
+Use for: moderation bots that need kick/ban/role management. Consider pairing with `--triggered-by` for user permission verification.
+</Tab>
+</Tabs>
+
+## Setting Permission Profiles
+
+There are three ways to set the active profile, in order of precedence:
+
+### 1. Per-invocation flag (highest priority)
+
+```bash
+discli --profile chat message send "#general" "Hello"
+discli --profile readonly serve --events messages
+```
+
+### 2. Environment variable
+
+```bash
+export DISCLI_PROFILE=chat
+discli serve --events messages
+```
+
+### 3. Persistent configuration
+
+```bash
+# Set the default profile
+discli permission set chat
+
+# Check current profile
+discli permission show
+
+# List all profiles
+discli permission profiles
+```
+
+The profile is stored in `~/.discli/permissions.json`.
+
+<Callout type="tip">
+For autonomous agents, set the profile via the `--profile` flag in your subprocess call. This way the restriction is explicit in your code and cannot be changed by environment or config file changes.
+</Callout>
+
+## How Profiles Work
+
+When a command runs, discli checks:
+
+1. Is the command in the `denied` list? If yes, block it.
+2. Is the command in the `allowed` list? If yes, allow it.
+3. Otherwise, block it.
+
+The check uses prefix matching: if `message` is in the allowed list, then `message send`, `message list`, `message delete`, and all other `message` subcommands are allowed.
+
+The special pattern `*` means "everything":
+
+- `"allowed": ["*"]` -- allow all commands
+- `"denied": ["*"]` -- deny all commands (then only explicitly allowed commands work)
+
+```python
+# In your agent code, set the profile when launching serve
+proc = subprocess.Popen(
+    ["discli", "--profile", "chat", "serve", "--events", "messages"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    text=True,
+)
+```
+
+If the agent tries to execute a denied command:
+
+```
+Error: Command 'member kick' is denied by your permission profile.
+```
+
+In serve mode, the error comes back as a response event:
+
+```json
+{"event": "error", "message": "Command 'serve' is denied by your permission profile."}
+```
+
+## The `--triggered-by` Flag
+
+For moderation actions, the `--triggered-by` flag verifies that the Discord user who triggered the action actually has the required Discord permission:
+
+```bash
+discli member kick "My Server" "@spammer" --reason "Spam" --triggered-by 9876543210
+```
+
+This checks:
+
+1. Is user `9876543210` a member of the server?
+2. Does the user have `kick_members` permission?
+3. Is the user the server owner or has Administrator?
+
+If the check fails, the action is blocked and an audit log entry is created.
+
+<Callout type="warning">
+The `--triggered-by` flag is available on `member kick`, `member ban`, and `member unban`. It is your responsibility to pass the correct user ID from the event that triggered the action. An agent could theoretically pass its own ID or a fake ID, so this is a defense-in-depth measure, not a hard security boundary.
+</Callout>
+
+### Permission mapping
+
+| Action | Required Discord Permission |
+|--------|---------------------------|
+| `member kick` | `kick_members` |
+| `member ban` / `member unban` | `ban_members` |
+
+Server owners and users with Administrator permission always pass the check.
+
+## Destructive Action Confirmation
+
+Certain commands require confirmation before executing:
+
+- `member kick`
+- `member ban`
+- `member unban`
+- `channel delete`
+- `message delete`
+- `role delete`
+
+In interactive mode, discli prompts:
+
+```
+⚠ Destructive action: member kick (alice from My Server). Continue? [y/N]
+```
+
+To skip the prompt in scripts and automation:
+
+```bash
+discli --yes member kick "My Server" "@spammer" --reason "Spam"
+```
+
+<Callout type="danger">
+Never use `--yes` in an autonomous agent without also using a restricted permission profile. The combination of `--yes` and `--profile full` means the agent can perform any destructive action without any safety check.
+</Callout>
+
+## Audit Logging
+
+Every destructive action is logged to `~/.discli/audit.log` as JSONL:
+
+```json
+{
+  "timestamp": "2025-03-15T10:30:00+00:00",
+  "command": "member kick",
+  "args": {"server": "My Server", "member": "alice#1234", "reason": "Spam"},
+  "result": "ok",
+  "user": "9876543210"
+}
+```
+
+### Viewing the audit log
+
+```bash
+# Show last 20 entries
+discli audit show
+
+# Show last 50 entries
+discli audit show --limit 50
+
+# JSON output for processing
+discli --json audit show --limit 100
+
+# Pipe to jq for analysis
+discli --json audit show --limit 1000 | jq 'group_by(.command) | map({command: .[0].command, count: length})'
+```
+
+### Clearing the audit log
+
+```bash
+discli audit clear
+```
+
+### What gets logged
+
+| Action | Logged? |
+|--------|---------|
+| `member kick` | Yes |
+| `member ban` | Yes |
+| `member unban` | Yes |
+| `channel delete` | Yes |
+| `message delete` | Yes |
+| `role delete` | Yes |
+| `message send` | No |
+| `message list` | No |
+| Permission check failures | Yes |
+
+## Rate Limiting
+
+discli applies rate limiting to destructive actions: **5 calls per 5 seconds**. If you exceed this, the CLI pauses and prints a warning:
+
+```
+Rate limited. Waiting 3.2s...
+```
+
+This prevents runaway agents from mass-deleting messages, kicking all members, or flooding the API. The rate limiter is global across all commands in a single process.
+
+<Callout type="note">
+The rate limiter applies to destructive CLI commands (`kick`, `ban`, `delete`). Serve mode actions bypass the CLI-level rate limiter but are still subject to Discord's own API rate limits. If you hit Discord's limits, the action will fail with an HTTP error.
+</Callout>
+
+## Custom Permission Profiles
+
+You can define custom profiles in `~/.discli/permissions.json`:
+
+```json
+{
+  "active_profile": "support-agent",
+  "profiles": {
+    "support-agent": {
+      "description": "Can chat and create threads, but not manage members or channels",
+      "allowed": [
+        "message send",
+        "message reply",
+        "message list",
+        "message get",
+        "message search",
+        "thread create",
+        "thread send",
+        "thread list",
+        "reaction add",
+        "reaction remove",
+        "dm send",
+        "typing",
+        "serve",
+        "listen",
+        "channel list",
+        "channel info",
+        "server list",
+        "server info",
+        "member list",
+        "member info"
+      ],
+      "denied": ["*"]
+    }
+  }
+}
+```
+
+The `"denied": ["*"]` line means "deny everything not explicitly allowed." This is the safest approach for custom profiles.
+
+<Callout type="tip">
+Start with the most restrictive profile that works, then add permissions as needed. It is much easier to add a missing permission than to recover from an agent that deleted a channel it should not have.
+</Callout>
+
+## Recommended Configurations
+
+<CardGroup cols={2}>
+<Card title="AI Chatbot">
+```bash
+discli --profile chat serve \
+  --events messages
+```
+Can send messages, create threads, add reactions. Cannot kick, ban, or delete anything.
+</Card>
+
+<Card title="Monitoring Dashboard">
+```bash
+discli --profile readonly serve \
+  --events messages,members
+```
+Can list and search. Cannot send, modify, or delete anything.
+</Card>
+
+<Card title="Moderation Bot">
+```bash
+discli --profile moderation serve \
+  --events messages,members
+```
+Full access. Use `--triggered-by` to verify the human moderator's permissions.
+</Card>
+
+<Card title="CI Notifier">
+```bash
+discli --profile chat \
+  message send "#deploys" "v2.1.0 deployed"
+```
+Send-only. Does not need listen, serve, or member operations.
+</Card>
+</CardGroup>
+
+## Security Checklist
+
+<Steps>
+<Step title="Use environment variables for tokens">
+Never hardcode tokens. Use `DISCORD_BOT_TOKEN` or `~/.discli/config.json`.
+</Step>
+<Step title="Set a permission profile">
+Default is `full`. Change it to `chat` or `readonly` for autonomous agents.
+</Step>
+<Step title="Pass --triggered-by for moderation">
+When your agent kicks or bans on behalf of a user, verify their Discord permissions.
+</Step>
+<Step title="Review audit logs regularly">
+Check `discli audit show` to ensure your agent is acting as expected.
+</Step>
+<Step title="Test with readonly first">
+Start with `--profile readonly` while developing, then upgrade to `chat` when ready.
+</Step>
+</Steps>
+
+## Next Steps
+
+- [Building Agents](/guides/building-agents) -- See Level 5 for a production agent with full safety
+- [Serve Mode](/guides/serve-mode) -- Protocol reference for all actions
+- [Scripting & Automation](/guides/scripting-automation) -- Secure automation patterns

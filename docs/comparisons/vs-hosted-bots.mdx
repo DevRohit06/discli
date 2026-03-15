@@ -1,0 +1,83 @@
+---
+title: discli vs Hosted Bots
+description: How discli compares to MEE6, Dyno, Carl-bot, and other hosted platforms
+---
+
+# discli vs Hosted Bots
+
+MEE6, Dyno, Carl-bot, and Combot are popular hosted bot platforms. You add them to your server through a web dashboard, configure features with clicks, and they run on someone else's infrastructure. discli is a self-hosted tool you run yourself.
+
+## What hosted bots offer
+
+Hosted bot platforms share a common model:
+
+- **No-code setup** — invite the bot, open a web dashboard, toggle features
+- **Pre-built features** — leveling, auto-moderation, welcome messages, role menus, music playback
+- **Managed hosting** — the platform runs the bot 24/7, handles updates and scaling
+- **Web dashboard** — configure everything through a browser UI
+
+These are genuine strengths. For a server admin who wants moderation and leveling without writing code, MEE6 or Dyno is the fastest path.
+
+## Where hosted bots fall short
+
+<Callout type="warning">
+The limitations below are inherent to the hosted model, not specific bugs. They apply to MEE6, Dyno, Carl-bot, and similar platforms.
+</Callout>
+
+- **Vendor lock-in** — your configuration lives on their servers. If the platform shuts down or changes pricing, you start over
+- **Paid premium tiers** — most useful features (custom commands, advanced auto-mod, analytics) require a monthly subscription. MEE6 Premium is $12/month per server
+- **No custom AI** — you cannot plug in your own LLM. Some platforms offer basic "AI" features, but you have no control over the model, prompt, or behavior
+- **Limited customization** — you can configure what they expose. If you need logic they did not anticipate, you are stuck
+- **Privacy concerns** — your server's messages pass through a third-party platform. You have no visibility into how they are stored or used
+- **No CI/CD integration** — hosted bots are configured through a web UI, not code. You cannot version-control your bot configuration or deploy it through a pipeline
+
+## What discli offers instead
+
+| Aspect | Hosted bots (MEE6, Dyno, etc.) | discli |
+|---|---|---|
+| **Setup** | Web dashboard, click to invite | `pip install`, set token, run |
+| **Hosting** | Managed by platform | Self-hosted (your server, your cloud, your laptop) |
+| **Cost** | Free tier + $6-16/month premium | Free, MIT licensed, forever |
+| **AI integration** | None or locked to platform's model | Any model — OpenAI, Claude, Llama, Mistral, local |
+| **Customization** | Dashboard toggles and templates | Full programmatic control, any language |
+| **Privacy** | Messages routed through third party | Your infrastructure, your data |
+| **Audit trail** | Platform-controlled logs | Built-in audit log you own and control |
+| **Version control** | Not possible | Config and scripts live in your repo |
+| **Extensibility** | Limited to platform's plugin system | Unlimited — it is just a CLI and JSONL protocol |
+
+## Platform-by-platform notes
+
+<Accordion title="MEE6">
+The most popular hosted bot. Known for leveling, auto-moderation, and custom commands. The free tier is restrictive — most servers end up on the $12/month Premium plan. MEE6 has faced controversy over aggressive monetization and NFT integration. No custom AI support.
+</Accordion>
+
+<Accordion title="Dyno">
+Strong auto-moderation and logging features. Dashboard is well-designed. Premium unlocks auto-purge, advanced auto-mod, and more. Dyno is reliable but shares the same fundamental limitations: no custom AI, no version control, no self-hosting.
+</Accordion>
+
+<Accordion title="Carl-bot">
+Excellent reaction roles and auto-moderation. Free tier is more generous than MEE6. Carl-bot's tag system allows limited custom commands. Still no AI integration, no CI/CD, no self-hosting option.
+</Accordion>
+
+<Accordion title="Combot">
+Focused on analytics and community management. Provides member activity stats, chat analytics, and moderation tools. Less feature-rich than MEE6/Dyno for general bot tasks. Analytics are locked behind premium tiers.
+</Accordion>
+
+## When hosted bots win
+
+Be honest about when a hosted platform is the better choice:
+
+- **Non-technical server admins** — if nobody on the team can run a terminal command, a web dashboard is the right answer
+- **Simple, standard needs** — leveling, welcome messages, basic auto-mod are solved problems. No need to reinvent them
+- **No server to run** — if you do not have a machine to host discli on (even a $5/month VPS), a managed platform removes that burden
+- **Music playback** — several hosted bots offer music features that discli does not
+
+## When discli wins
+
+- **AI integration** — connect any LLM to Discord with the JSONL agent protocol
+- **Custom logic** — write exactly the behavior you need in any programming language
+- **Privacy and control** — your messages never leave your infrastructure
+- **No recurring cost** — MIT licensed, free forever, no premium upsells
+- **CI/CD integration** — deploy your bot the same way you deploy your app
+- **Audit and compliance** — built-in audit logging you own and can query
+- **Multiple channels/servers** — one discli instance, full programmatic control across everything your bot can see

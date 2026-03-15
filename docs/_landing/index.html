@@ -1,0 +1,272 @@
+<div class="landing-page">
+
+<!-- ===== NAV ===== -->
+<nav class="nav">
+  <div class="container">
+    <a href="/" class="nav-brand">
+      <img src="/logo.svg" width="24" height="24" alt="discli" />
+      <span>discli</span>
+    </a>
+    <div class="nav-links">
+      <a href="/getting-started/installation">Docs</a>
+      <a href="/guides/building-agents">Guides</a>
+      <a href="/reference/cli-commands">Reference</a>
+    </div>
+    <div class="nav-right">
+      <a href="https://github.com/DevRohit06/discli" target="_blank" rel="noopener" class="nav-gh">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        GitHub
+      </a>
+      <a href="/getting-started/quickstart" class="nav-cta">Get Started</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="container">
+    <div class="hero-badge">
+      <span class="badge-dot"></span>
+      Open source &middot; MIT Licensed
+    </div>
+    <h1 class="hero-h1">Discord CLI for<br />AI agents &amp; humans</h1>
+    <p class="hero-sub">Build autonomous Discord bots, automate servers, and deploy AI agents &mdash; all from your terminal. One binary. Any language. Zero boilerplate.</p>
+    <div class="hero-actions">
+      <a href="/getting-started/quickstart" class="btn-primary">Get Started</a>
+      <div class="install-pill" onclick="copyInstall()" role="button" tabindex="0" aria-label="Copy install command">
+        <span class="pill-dollar">$</span>
+        <code>pip install discord-cli-agent</code>
+        <svg class="pill-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hero terminal -->
+  <div class="container">
+    <div class="hero-term">
+      <div class="term-chrome">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="term-title">discli serve</span>
+      </div>
+      <div class="term-body" id="termBody">
+        <div class="tl" data-delay="0"><span class="t-muted">$</span> discli --json serve --status online</div>
+        <div class="tl tl-green" data-delay="800">&#123;"event":"ready","bot_name":"my-agent","guilds":3&#125;</div>
+        <div class="tl tl-green" data-delay="2200">&#123;"event":"message","author":"alice","content":"@bot help"&#125;</div>
+        <div class="tl tl-blue" data-delay="3200"><span class="t-accent">&rarr;</span> &#123;"action":"typing_start","channel_id":"982..."&#125;</div>
+        <div class="tl tl-blue" data-delay="4200"><span class="t-accent">&rarr;</span> &#123;"action":"reply","content":"Hi! How can I help?"&#125;</div>
+        <div class="tl tl-dim" data-delay="5000">&#123;"event":"response","status":"ok"&#125;</div>
+        <span class="cursor"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FEATURES (3 bordered cards) ===== -->
+<section class="section">
+  <div class="container">
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </div>
+        <h3>CLI-First</h3>
+        <p>Every Discord action is a single command. Pipe into jq, chain with &amp;&amp;, run from cron. Built for the terminal.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </div>
+        <h3>Agent-Ready</h3>
+        <p>Persistent JSONL over stdin/stdout. Your AI agent receives Discord events and sends actions in real-time, in any language.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        </div>
+        <h3>Secure by Default</h3>
+        <p>Permission profiles restrict what agents can do. Audit logs track every action. Rate limiting prevents abuse.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== HOW IT WORKS ===== -->
+<section class="section">
+  <div class="container">
+    <span class="label">How it works</span>
+    <h2 class="section-h2">The JSONL protocol</h2>
+    <p class="section-desc">discli serve opens a persistent connection. Events flow out on stdout. Actions flow in on stdin. Pure JSON lines.</p>
+
+    <div class="protocol-grid">
+      <div class="protocol-card">
+        <span class="protocol-tag">stdout</span>
+        <h3>Events</h3>
+        <p>Messages, reactions, member joins, slash commands &mdash; every Discord event arrives as a JSON line on stdout.</p>
+        <div class="mini-term">
+          <code class="tl tl-green">&#123;"event":"message","author":"alice"&#125;</code>
+          <code class="tl tl-green">&#123;"event":"reaction_add","emoji":"thumbsup"&#125;</code>
+          <code class="tl tl-green">&#123;"event":"member_join","user":"bob"&#125;</code>
+        </div>
+      </div>
+      <div class="protocol-card">
+        <span class="protocol-tag">stdin</span>
+        <h3>Actions</h3>
+        <p>Send messages, assign roles, create threads, stream responses &mdash; write a JSON line to stdin.</p>
+        <div class="mini-term">
+          <code class="tl tl-blue"><span class="t-accent">&rarr;</span> &#123;"action":"reply","content":"Hi!"&#125;</code>
+          <code class="tl tl-blue"><span class="t-accent">&rarr;</span> &#123;"action":"role_assign","role":"mod"&#125;</code>
+          <code class="tl tl-blue"><span class="t-accent">&rarr;</span> &#123;"action":"thread_create","name":"..."&#125;</code>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CODE PREVIEW ===== -->
+<section class="section">
+  <div class="container">
+    <span class="label">Quick start</span>
+    <h2 class="section-h2">From zero to agent in 15 lines</h2>
+
+    <div class="code-frame">
+      <div class="term-chrome">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="term-title">agent.py</span>
+        <button class="copy-btn" onclick="copyCode()" aria-label="Copy code"><span id="codeCopyLabel">Copy</span></button>
+      </div>
+      <pre class="term-code" id="codeSnippet"><span class="c-kw">import</span> json, subprocess
+
+proc = subprocess.Popen(
+    [<span class="c-str">"discli"</span>, <span class="c-str">"--json"</span>, <span class="c-str">"serve"</span>],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=<span class="c-val">True</span>,
+)
+
+<span class="c-kw">for</span> line <span class="c-kw">in</span> proc.stdout:
+    event = json.loads(line)
+    <span class="c-kw">if</span> event.get(<span class="c-str">"event"</span>) == <span class="c-str">"message"</span> <span class="c-kw">and not</span> event.get(<span class="c-str">"is_bot"</span>):
+        cmd = json.dumps(&#123;
+            <span class="c-str">"action"</span>: <span class="c-str">"reply"</span>,
+            <span class="c-str">"channel_id"</span>: event[<span class="c-str">"channel_id"</span>],
+            <span class="c-str">"message_id"</span>: event[<span class="c-str">"message_id"</span>],
+            <span class="c-str">"content"</span>: <span class="c-kw">f</span><span class="c-str">"You said: &#123;event['content']&#125;"</span>,
+        &#125;)
+        proc.stdin.write(cmd + <span class="c-str">"\n"</span>)
+        proc.stdin.flush()</pre>
+    </div>
+    <div class="cta-row">
+      <a href="/getting-started/your-first-bot" class="btn-primary">Full walkthrough &rarr;</a>
+      <a href="/guides/building-agents" class="btn-ghost">Building agents &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== USE CASES ===== -->
+<section class="section">
+  <div class="container">
+    <span class="label">Use cases</span>
+    <h2 class="section-h2">What will you build?</h2>
+    <div class="cases-grid">
+      <a href="/use-cases/ai-support-agent" class="case-card">
+        <span class="case-num">01</span>
+        <h3>AI Support Agent</h3>
+        <p>Answer questions autonomously with Claude, GPT, or any model.</p>
+      </a>
+      <a href="/use-cases/moderation-bot" class="case-card">
+        <span class="case-num">02</span>
+        <h3>Moderation Bot</h3>
+        <p>Auto-detect spam, warn users, kick repeat offenders.</p>
+      </a>
+      <a href="/use-cases/thread-based-support" class="case-card">
+        <span class="case-num">03</span>
+        <h3>Thread Support</h3>
+        <p>Create threads per request, manage async conversations.</p>
+      </a>
+      <a href="/use-cases/channel-logger" class="case-card">
+        <span class="case-num">04</span>
+        <h3>Channel Logger</h3>
+        <p>Stream events to JSONL files. One-liner setup.</p>
+      </a>
+      <a href="/use-cases/ci-notifications" class="case-card">
+        <span class="case-num">05</span>
+        <h3>CI Notifications</h3>
+        <p>Build status and deploy alerts from GitHub Actions.</p>
+      </a>
+      <a href="/guides/building-agents" class="case-card case-card--cta">
+        <span class="case-num">+</span>
+        <h3>Your Idea</h3>
+        <p>The protocol is open. Build whatever you imagine.</p>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== AUTONOMY LEVELS ===== -->
+<section class="section">
+  <div class="container">
+    <span class="label">Progressive autonomy</span>
+    <h2 class="section-h2">Start simple. Scale up when ready.</h2>
+    <div class="levels-row">
+      <div class="lv" data-lv="1"><span class="lv-tag">Level 1 <span class="lv-loc">~20 lines</span></span><h3>Reactive Bot</h3><p>Respond to keywords with fixed replies.</p></div>
+      <div class="lv" data-lv="2"><span class="lv-tag">Level 2 <span class="lv-loc">~35 lines</span></span><h3>Context-Aware</h3><p>Fetch message history before responding.</p></div>
+      <div class="lv" data-lv="3"><span class="lv-tag">Level 3 <span class="lv-loc">~60 lines</span></span><h3>Proactive Agent</h3><p>Create threads, stream responses, detect intent.</p></div>
+      <div class="lv" data-lv="4"><span class="lv-tag">Level 4 <span class="lv-loc">~90 lines</span></span><h3>Multi-Action</h3><p>Assign roles, DMs, reactions, channels.</p></div>
+      <div class="lv" data-lv="5"><span class="lv-tag">Level 5 <span class="lv-loc">~120 lines</span></span><h3>Full Autonomous</h3><p>Permission-bounded, audit-logged, production-ready.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CTA ===== -->
+<section class="section section--cta">
+  <div class="container cta-center">
+    <h2 class="cta-h2">Ready to build?</h2>
+    <p class="cta-sub">Install discli in seconds and ship your first agent today.</p>
+    <div class="hero-actions">
+      <a href="/getting-started/quickstart" class="btn-primary btn-primary--lg">Get Started</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <a href="/" class="footer-logo">
+          <img src="/logo.svg" width="20" height="20" alt="discli" />
+          <span>discli</span>
+        </a>
+        <p class="footer-tagline">Discord CLI for AI Agents &amp; Humans</p>
+      </div>
+      <div class="footer-cols">
+        <div class="footer-col">
+          <h4>Documentation</h4>
+          <a href="/getting-started/installation">Installation</a>
+          <a href="/getting-started/quickstart">Quickstart</a>
+          <a href="/getting-started/your-first-bot">Your First Bot</a>
+          <a href="/reference/cli-commands">CLI Reference</a>
+        </div>
+        <div class="footer-col">
+          <h4>Guides</h4>
+          <a href="/guides/building-agents">Building Agents</a>
+          <a href="/guides/serve-mode">Serve Mode</a>
+          <a href="/guides/streaming-responses">Streaming</a>
+          <a href="/guides/security-permissions">Security</a>
+        </div>
+        <div class="footer-col">
+          <h4>Community</h4>
+          <a href="https://github.com/DevRohit06/discli" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://pypi.org/project/discord-cli-agent/" target="_blank" rel="noopener">PyPI</a>
+          <a href="https://github.com/DevRohit06/discli/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+          <a href="https://github.com/DevRohit06/discli/issues" target="_blank" rel="noopener">Issues</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 Rohit Kushwaha. MIT License.</span>
+      <span class="footer-credit">Built with <a href="https://lito.rohitk06.in" target="_blank" rel="noopener">Lito</a></span>
+    </div>
+  </div>
+</footer>
+
+</div>

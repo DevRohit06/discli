@@ -1,0 +1,678 @@
+---
+title: CLI Commands
+description: Complete reference for all discli commands and options
+---
+
+# CLI Commands
+
+Complete reference for every `discli` command, subcommand, argument, and option.
+
+## Global Options
+
+These options apply to all commands and must appear before the subcommand.
+
+| Option | Env Var | Description |
+|--------|---------|-------------|
+| `--token TEXT` | `DISCORD_BOT_TOKEN` | Discord bot token |
+| `--json` | | Output as JSON |
+| `--yes`, `-y` | | Skip confirmation prompts for destructive actions |
+| `--profile CHOICE` | `DISCLI_PROFILE` | Override permission profile (`full`, `chat`, `readonly`, `moderation`) |
+
+---
+
+## message
+
+Send, list, edit, and delete messages.
+
+### message send
+
+Send a message to a channel.
+
+```
+discli message send <channel> <text> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `TEXT` | yes | Message content |
+| `--embed-title TEXT` | no | Embed title |
+| `--embed-desc TEXT` | no | Embed description |
+| `--file PATH` | no | File to attach (repeatable) |
+
+### message list
+
+List recent messages in a channel.
+
+```
+discli message list <channel> [OPTIONS]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `CHANNEL` | yes | | Channel name or ID |
+| `--limit N` | no | 10 | Number of messages to fetch |
+| `--before DATE` | no | | Before date (YYYY-MM-DD or ISO) |
+| `--after DATE` | no | | After date (YYYY-MM-DD or ISO) |
+
+### message history
+
+Fetch deep message history from a channel.
+
+```
+discli message history <channel> [OPTIONS]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `CHANNEL` | yes | | Channel name or ID |
+| `--days N` | no | | Fetch messages from last N days |
+| `--hours N` | no | | Fetch messages from last N hours |
+| `--limit N` | no | unlimited | Max messages to fetch |
+
+### message get
+
+Fetch a single message by ID.
+
+```
+discli message get <channel> <message_id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `MESSAGE_ID` | yes | Message snowflake ID |
+
+### message edit
+
+Edit a message.
+
+```
+discli message edit <channel> <message_id> <new_text>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `MESSAGE_ID` | yes | Message snowflake ID |
+| `NEW_TEXT` | yes | Replacement content |
+
+### message delete
+
+Delete a message. Requires confirmation (use `--yes` to skip).
+
+```
+discli message delete <channel> <message_id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `MESSAGE_ID` | yes | Message snowflake ID |
+
+### message reply
+
+Reply to a specific message.
+
+```
+discli message reply <channel> <message_id> <text> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `MESSAGE_ID` | yes | Message to reply to |
+| `TEXT` | yes | Reply content |
+| `--file PATH` | no | File to attach (repeatable) |
+
+### message search
+
+Search messages in a channel by content.
+
+```
+discli message search <channel> <query> [OPTIONS]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `CHANNEL` | yes | | Channel name or ID |
+| `QUERY` | yes | | Search string (case-insensitive) |
+| `--limit N` | no | 100 | Number of messages to scan |
+| `--author TEXT` | no | | Filter by author name |
+| `--before DATE` | no | | Before date (YYYY-MM-DD or ISO) |
+| `--after DATE` | no | | After date (YYYY-MM-DD or ISO) |
+
+---
+
+## dm
+
+Send and read direct messages.
+
+### dm send
+
+Send a direct message to a user.
+
+```
+discli dm send <user> <text> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `USER` | yes | User ID or username |
+| `TEXT` | yes | Message content |
+| `--file PATH` | no | File to attach (repeatable) |
+
+### dm list
+
+List recent DMs with a user.
+
+```
+discli dm list <user> [OPTIONS]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `USER` | yes | | User ID or username |
+| `--limit N` | no | 10 | Number of messages to fetch |
+
+---
+
+## reaction
+
+Add, remove, and list reactions.
+
+### reaction add
+
+Add a reaction to a message.
+
+```
+discli reaction add <channel> <message_id> <emoji>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `MESSAGE_ID` | yes | Message snowflake ID |
+| `EMOJI` | yes | Emoji character or custom emoji string |
+
+### reaction remove
+
+Remove a reaction from a message.
+
+```
+discli reaction remove <channel> <message_id> <emoji>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `MESSAGE_ID` | yes | Message snowflake ID |
+| `EMOJI` | yes | Emoji character or custom emoji string |
+
+### reaction list
+
+List reactions on a message.
+
+```
+discli reaction list <channel> <message_id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `MESSAGE_ID` | yes | Message snowflake ID |
+
+---
+
+## channel
+
+List, create, delete, and inspect channels.
+
+### channel list
+
+List channels in a server.
+
+```
+discli channel list [OPTIONS]
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--server TEXT` | no | Server name or ID (lists all servers if omitted) |
+
+### channel create
+
+Create a channel in a server.
+
+```
+discli channel create <server> <name> [OPTIONS]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `SERVER` | yes | | Server name or ID |
+| `NAME` | yes | | Channel name |
+| `--type CHOICE` | no | `text` | Channel type: `text`, `voice`, or `category` |
+
+### channel delete
+
+Delete a channel. Requires confirmation (use `--yes` to skip).
+
+```
+discli channel delete <channel>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+
+### channel info
+
+Show channel details.
+
+```
+discli channel info <channel>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+
+---
+
+## thread
+
+Create, list, and send messages in threads.
+
+### thread create
+
+Create a thread from a message.
+
+```
+discli thread create <channel> <message_id> <name>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Parent channel name or ID |
+| `MESSAGE_ID` | yes | Message to create thread from |
+| `NAME` | yes | Thread name |
+
+### thread list
+
+List active threads in a channel.
+
+```
+discli thread list <channel>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+
+### thread send
+
+Send a message to a thread.
+
+```
+discli thread send <thread> <text> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `THREAD` | yes | Thread name or ID |
+| `TEXT` | yes | Message content |
+| `--file PATH` | no | File to attach (repeatable) |
+
+---
+
+## server
+
+List and inspect servers.
+
+### server list
+
+List servers the bot is in.
+
+```
+discli server list
+```
+
+No arguments or options.
+
+### server info
+
+Show server details.
+
+```
+discli server info <server>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+
+---
+
+## role
+
+Manage server roles.
+
+### role list
+
+List roles in a server.
+
+```
+discli role list <server>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+
+### role create
+
+Create a role.
+
+```
+discli role create <server> <name> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `NAME` | yes | Role name |
+| `--color HEX` | no | Hex color (e.g. `ff0000`) |
+| `--permissions INT` | no | Permission integer |
+
+### role delete
+
+Delete a role. Requires confirmation (use `--yes` to skip).
+
+```
+discli role delete <server> <role>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `ROLE` | yes | Role name or ID |
+
+### role assign
+
+Assign a role to a member.
+
+```
+discli role assign <server> <member> <role>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `MEMBER` | yes | Member name or ID |
+| `ROLE` | yes | Role name or ID |
+
+### role remove
+
+Remove a role from a member.
+
+```
+discli role remove <server> <member> <role>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `MEMBER` | yes | Member name or ID |
+| `ROLE` | yes | Role name or ID |
+
+---
+
+## member
+
+List, inspect, kick, ban, and unban members.
+
+### member list
+
+List members of a server.
+
+```
+discli member list <server> [OPTIONS]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `SERVER` | yes | | Server name or ID |
+| `--limit N` | no | 50 | Max members to list |
+
+### member info
+
+Show member details.
+
+```
+discli member info <server> <member>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `MEMBER` | yes | Member name or ID |
+
+### member kick
+
+Kick a member from the server. Requires confirmation (use `--yes` to skip).
+
+```
+discli member kick <server> <member> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `MEMBER` | yes | Member name or ID |
+| `--reason TEXT` | no | Reason for kick |
+| `--triggered-by TEXT` | no | User ID who triggered this action (for permission check) |
+
+### member ban
+
+Ban a member from the server. Requires confirmation (use `--yes` to skip).
+
+```
+discli member ban <server> <member> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `MEMBER` | yes | Member name or ID |
+| `--reason TEXT` | no | Reason for ban |
+| `--triggered-by TEXT` | no | User ID who triggered this action (for permission check) |
+
+### member unban
+
+Unban a member from the server. Requires confirmation (use `--yes` to skip).
+
+```
+discli member unban <server> <member> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `MEMBER` | yes | Member name or ID (username or user ID) |
+| `--triggered-by TEXT` | no | User ID who triggered this action (for permission check) |
+
+---
+
+## poll
+
+Create and manage polls.
+
+### poll create
+
+Create a poll in a channel.
+
+```
+discli poll create <channel> <question> <answers...> [OPTIONS]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `CHANNEL` | yes | | Channel name or ID |
+| `QUESTION` | yes | | Poll question |
+| `ANSWERS` | yes | | Two or more poll options (space-separated) |
+| `--duration N` | no | 24 | Poll duration in hours |
+| `--multiple` | no | false | Allow multiple selections |
+| `--emoji`, `-e` | no | | Emoji for each answer (in order, repeatable) |
+
+Example:
+
+```
+discli poll create #general "Favorite AI?" Claude Gemini ChatGPT
+discli poll create #general "Best?" A B C -e a_emoji -e b_emoji -e c_emoji
+discli poll create #general "Vote!" Yes No --multiple -e ok -e x
+```
+
+---
+
+## typing
+
+Show typing indicator in a channel.
+
+```
+discli typing <channel> [OPTIONS]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `CHANNEL` | yes | | Channel name or ID |
+| `--duration N` | no | 5 | Seconds to show typing indicator |
+
+---
+
+## listen
+
+Listen for real-time Discord events. Outputs events to stdout. Press Ctrl+C to stop.
+
+```
+discli listen [OPTIONS]
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--server TEXT` | no | | Filter by server name or ID |
+| `--channel TEXT` | no | | Filter by channel name or ID |
+| `--events TEXT` | no | all | Comma-separated event types: `messages`, `reactions`, `members`, `edits`, `deletes` |
+| `--ignore-bots` / `--include-bots` | no | `--ignore-bots` | Ignore messages from bots |
+
+---
+
+## serve
+
+Start a persistent bot process with bidirectional JSONL communication. Events are emitted on stdout; commands are read from stdin.
+
+```
+discli serve [OPTIONS]
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--server TEXT` | no | | Filter events by server name or ID |
+| `--channel TEXT` | no | | Filter events by channel name or ID |
+| `--events TEXT` | no | all | Comma-separated event types: `messages`, `reactions`, `members`, `edits`, `deletes` |
+| `--include-self` / `--no-include-self` | no | `--include-self` | Include bot's own messages in events |
+| `--slash-commands PATH` | no | | JSON file defining slash commands to register |
+| `--status CHOICE` | no | `online` | Bot status: `online`, `idle`, `dnd`, `invisible` |
+| `--activity TEXT` | no | | Activity type: `playing`, `watching`, `listening`, `competing` |
+| `--activity-text TEXT` | no | | Activity display text |
+
+See [Serve Actions](/reference/serve-actions) and [Serve Events](/reference/serve-events) for the full JSONL protocol.
+
+---
+
+## config
+
+Manage discli configuration. Configuration is stored in `~/.discli/config.json`.
+
+### config set
+
+Set a config value.
+
+```
+discli config set <key> <value>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `KEY` | yes | Config key (e.g. `token`) |
+| `VALUE` | yes | Config value |
+
+### config show
+
+Show current configuration. Token values are truncated in plain-text output.
+
+```
+discli config show
+```
+
+---
+
+## permission
+
+Manage permission profiles for command access control.
+
+### permission show
+
+Show the active permission profile, including allowed and denied command patterns.
+
+```
+discli permission show
+```
+
+### permission set
+
+Set the active permission profile.
+
+```
+discli permission set <profile>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PROFILE` | yes | One of `full`, `chat`, `readonly`, `moderation` |
+
+### permission profiles
+
+List all available permission profiles.
+
+```
+discli permission profiles
+```
+
+See [Permission Profiles](/reference/permission-profiles) for details on each profile.
+
+---
+
+## audit
+
+View the audit log. Destructive actions are logged to `~/.discli/audit.log`.
+
+### audit show
+
+Show recent audit log entries.
+
+```
+discli audit show [OPTIONS]
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--limit N` | no | 20 | Number of entries to show |
+
+### audit clear
+
+Clear the audit log.
+
+```
+discli audit clear
+```

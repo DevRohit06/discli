@@ -1,0 +1,179 @@
+---
+title: Common Issues
+description: Solutions for the most frequent discli problems
+---
+
+# Common Issues
+
+The most frequent problems people encounter with discli, with symptoms, causes, and fixes.
+
+## Token not found
+
+<Callout type="danger">
+```
+Error: No bot token found. Set via `discli config set token`, --token flag, or DISCORD_BOT_TOKEN env var.
+```
+</Callout>
+
+**Cause:** discli checks three places for your bot token, in order: the `--token` CLI flag, the `DISCORD_BOT_TOKEN` environment variable, and `~/.discli/config.json`. If none of them have a token, you get this error.
+
+**Fix:**
+
+```bash
+# Option 1: Save it permanently
+discli config set token YOUR_BOT_TOKEN
+
+# Option 2: Set it for the current session
+export DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN
+
+# Option 3: Pass it per-command
+discli --token YOUR_BOT_TOKEN message send "#general" "hello"
+```
+
+## Permission denied on command
+
+```
+Error: Action "channel_delete" is not allowed by profile "safe-agent".
+```
+
+**Cause:** You are running with a permission profile that restricts the command you are trying to use.
+
+**Fix:**
+
+```bash
+# See what the current profile allows
+discli permission show safe-agent
+
+# Switch to a different profile
+discli serve --profile admin
+
+# Or run without a profile (all actions allowed)
+discli serve
+```
+
+<Callout type="tip">
+Permission profiles are a safety feature, not a bug. If an agent hits this error, it is working as intended — the profile is preventing an action you did not want the agent to take.
+</Callout>
+
+## Bot does not respond to messages
+
+**Symptom:** Your bot is online (green dot in Discord) but ignores all messages. `discli listen --events messages` produces no output.
+
+**Cause:** The MESSAGE_CONTENT privileged intent is not enabled for your bot.
+
+**Fix:**
+
+<Steps>
+<Step title="Go to the Discord Developer Portal">
+Open [discord.com/developers/applications](https://discord.com/developers/applications) and select your bot.
+</Step>
+<Step title="Enable the intent">
+Navigate to **Bot** > **Privileged Gateway Intents** > enable **Message Content Intent**.
+</Step>
+<Step title="Restart discli">
+The intent change takes effect on the next gateway connection. Restart `discli serve` or `discli listen`.
+</Step>
+</Steps>
+
+## Rate limited errors
+
+```
+Error: Rate limited. Retry after 2.5s.
+```
+
+**Cause:** Either Discord's API rate limiter or discli's built-in rate limiter has been triggered. discli enforces a default limit of 5 destructive actions per 5 seconds to protect your bot from accidental spam.
+
+**Fix:**
+
+- **Reduce frequency** — space out your actions, especially bulk sends
+- **Check your code** — an infinite loop or missing deduplication can cause rapid-fire requests
+- **For Discord 429s** — discli retries automatically with backoff. If you see persistent 429s, you are sending too much traffic
+
+## `discli listen` shows nothing
+
+**Symptom:** You run `discli listen --events messages` and the process starts but no events appear, even when messages are sent in the server.
+
+**Cause:** The GUILD_MESSAGES intent is not enabled, or the bot does not have permission to view the channel.
+
+**Fix:**
+
+1. Enable **Server Members Intent** and **Message Content Intent** in the Developer Portal (see above)
+2. Verify the bot has **View Channel** and **Read Message History** permissions in the target channel
+3. Check that the bot is actually in the server — `discli server list` should show it
+
+## `discli serve` exits immediately
+
+**Symptom:** `discli serve` starts and then exits within a few seconds, sometimes with no output.
+
+**Cause:** Usually an invalid token, network connectivity issue, or missing intents.
+
+**Fix:**
+
+```bash
+# Check stderr for error details
+discli serve 2> error.log
+cat error.log
+
+# Verify your token works
+discli server list
+
+# Check network connectivity
+discli config show
+```
+
+<Callout type="note">
+If `discli server list` works but `discli serve` exits, the issue is likely a missing gateway intent. The REST API (used by CLI commands) does not require intents, but the gateway connection (used by serve) does.
+</Callout>
+
+## Slash commands do not appear
+
+**Symptom:** You registered slash commands but they do not show up in Discord's command picker.
+
+**Cause:** Global slash commands can take **up to 1 hour** to propagate across Discord. This is a Discord limitation, not a discli issue.
+
+**Fix:**
+
+- **Wait up to 1 hour** for global commands to sync
+- **Use guild-specific commands for testing** — they sync instantly:
+
+```bash
+# Guild-specific (instant)
+discli slash register --guild 1234567890 --name ping --description "Pong!"
+
+# Global (up to 1 hour delay)
+discli slash register --name ping --description "Pong!"
+```
+
+## Unknown channel error
+
+```
+Error: Unknown channel "general". Did you mean "#general"?
+```
+
+**Cause:** Channel names must be prefixed with `#` so discli knows you are referencing a channel name, not a server name.
+
+**Fix:**
+
+```bash
+# Wrong — discli interprets this as a server name
+discli message send general "hello"
+
+# Right — the # prefix identifies it as a channel
+discli message send "#general" "hello"
+
+# Also right — raw numeric IDs need no prefix
+discli message send 1234567890123456789 "hello"
+```
+
+## Bot can see messages but cannot reply
+
+**Symptom:** `discli message list "#general"` works fine, but `discli message send "#general" "hello"` returns a permission error.
+
+**Cause:** The bot has **View Channel** and **Read Message History** permissions but is missing **Send Messages**.
+
+**Fix:**
+
+1. Open **Server Settings** > **Roles** in Discord
+2. Find your bot's role
+3. Enable the **Send Messages** permission
+4. If the channel has permission overrides, check those too — channel-level permissions override role permissions

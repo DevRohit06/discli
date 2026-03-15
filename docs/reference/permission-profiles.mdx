@@ -1,0 +1,225 @@
+---
+title: Permission Profiles
+description: Built-in and custom permission profile definitions
+---
+
+# Permission Profiles
+
+Permission profiles control which discli commands can be executed. They are useful when running discli as a subprocess of an AI agent, allowing you to restrict what the agent can do.
+
+## Built-in Profiles
+
+### full
+
+Full access to all commands. This is the default.
+
+```json
+{
+  "description": "Full access to all commands",
+  "allowed": ["*"],
+  "denied": []
+}
+```
+
+### chat
+
+Messages, reactions, threads, typing, DMs, listening, serving, config, and server queries. Blocks destructive moderation and infrastructure actions.
+
+```json
+{
+  "description": "Messages, reactions, threads, typing only",
+  "allowed": [
+    "message",
+    "reaction",
+    "thread",
+    "typing",
+    "dm",
+    "listen",
+    "serve",
+    "config",
+    "server"
+  ],
+  "denied": [
+    "member kick",
+    "member ban",
+    "member unban",
+    "channel delete",
+    "role delete",
+    "role create",
+    "channel create"
+  ]
+}
+```
+
+### readonly
+
+Read-only access. Only list, info, get, search, and listen commands are permitted. Everything else is denied by default.
+
+```json
+{
+  "description": "Read-only: list, info, get, search, listen",
+  "allowed": [
+    "message list",
+    "message get",
+    "message search",
+    "message history",
+    "channel list",
+    "channel info",
+    "server list",
+    "server info",
+    "role list",
+    "member list",
+    "member info",
+    "reaction list",
+    "thread list",
+    "listen",
+    "config show"
+  ],
+  "denied": ["*"]
+}
+```
+
+### moderation
+
+Full access to all commands, including moderation actions. Functionally identical to `full`.
+
+```json
+{
+  "description": "Full access including moderation",
+  "allowed": ["*"],
+  "denied": []
+}
+```
+
+---
+
+## Checking the Active Profile
+
+```
+discli permission show
+```
+
+Output (plain text):
+
+```
+Active profile: chat
+Description: Messages, reactions, threads, typing only
+Allowed: message, reaction, thread, typing, dm, listen, serve, config, server
+Denied: member kick, member ban, member unban, channel delete, role delete, role create, channel create
+```
+
+With `--json`:
+
+```json
+{
+  "active_profile": "chat",
+  "description": "Messages, reactions, threads, typing only",
+  "allowed": ["message", "reaction", "thread", "typing", "dm", "listen", "serve", "config", "server"],
+  "denied": ["member kick", "member ban", "member unban", "channel delete", "role delete", "role create", "channel create"]
+}
+```
+
+---
+
+## Setting the Active Profile
+
+```
+discli permission set <profile>
+```
+
+Where `<profile>` is one of `full`, `chat`, `readonly`, or `moderation`.
+
+Example:
+
+```
+discli permission set readonly
+```
+
+Output:
+
+```
+Permission profile set to: readonly (Read-only: list, info, get, search, listen)
+```
+
+The setting is persisted to `~/.discli/permissions.json`.
+
+---
+
+## Listing All Profiles
+
+```
+discli permission profiles
+```
+
+---
+
+## Overriding Per-Invocation
+
+Use the `--profile` global option to override the active profile for a single command without changing the persisted setting:
+
+```
+discli --profile readonly message list general
+```
+
+The `DISCLI_PROFILE` environment variable also works:
+
+```
+DISCLI_PROFILE=chat discli message send general "Hello"
+```
+
+---
+
+## Custom Profiles
+
+You can define custom profiles by editing `~/.discli/permissions.json` directly. The file structure:
+
+```json
+{
+  "active_profile": "my-custom",
+  "profiles": {
+    "my-custom": {
+      "description": "Only messaging and reactions",
+      "allowed": ["message send", "message reply", "reaction add", "reaction remove"],
+      "denied": ["*"]
+    }
+  }
+}
+```
+
+Custom profiles follow the same matching rules as built-in profiles. Set `active_profile` to the custom profile name.
+
+---
+
+## How Permission Checking Works
+
+When a command is executed, discli resolves the active profile (from `--profile` flag, `DISCLI_PROFILE` env var, or `~/.discli/permissions.json`) and evaluates it as follows:
+
+1. **Check denied list first.** If any denied pattern matches the command, the command is blocked -- unless the allowed list also matches (see step 2 for the `"*"` denied case).
+
+2. **Wildcard denial (`"*"` in denied).** When `denied` contains `"*"`, everything is denied by default. The command is only allowed if it explicitly matches an entry in the `allowed` list. This is how the `readonly` profile works.
+
+3. **Check allowed list.** If no denied pattern matched, the command must match an allowed pattern to proceed. A wildcard `"*"` in the allowed list permits all commands.
+
+**Pattern matching rules:**
+
+- `"*"` matches all commands.
+- `"message"` matches `message send`, `message list`, `message delete`, and any other `message` subcommand.
+- `"message send"` matches only the `message send` command exactly.
+- `"member kick"` matches `member kick` exactly.
+
+Patterns are matched by checking if the full command path equals the pattern or starts with the pattern followed by a space. This means `"message"` matches `"message send"` but not `"messaging"`.
+
+---
+
+## Destructive Command Protection
+
+Independently of permission profiles, the following commands require interactive confirmation before execution:
+
+- `member kick`
+- `member ban`
+- `member unban`
+- `channel delete`
+- `message delete`
+- `role delete`
+
+Use the `--yes` / `-y` global flag to skip confirmation prompts (e.g., in scripted or agent-driven usage). Destructive actions are logged to the audit log at `~/.discli/audit.log`.

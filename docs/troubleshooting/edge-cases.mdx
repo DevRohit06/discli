@@ -1,0 +1,182 @@
+---
+title: Edge Cases
+description: Technical edge cases and how to handle them
+---
+
+# Edge Cases
+
+These are less common issues that arise in specific scenarios. If you have hit something weird that is not in [Common Issues](/troubleshooting/common-issues), check here.
+
+## Large guild member fetches
+
+**Symptom:** `discli member list` returns only a partial list for a server with 1,000+ members.
+
+**Cause:** Discord requires the **Server Members Intent** (a privileged intent) to fetch the full member list. Without it, only cached/online members are returned.
+
+**Fix:**
+
+1. Enable **Server Members Intent** in the [Developer Portal](https://discord.com/developers/applications) under **Bot** > **Privileged Gateway Intents**
+2. For very large guilds (10,000+), Discord paginates member lists. discli handles pagination automatically, but the request may take several seconds
+
+<Callout type="warning">
+The Server Members Intent must be explicitly approved by Discord for bots in 100+ guilds. If your bot is in many servers, you will need to apply through the Developer Portal's verification process.
+</Callout>
+
+## Interaction token expiry
+
+**Symptom:** Responding to a slash command returns `Invalid Webhook Token` or `Interaction token expired`.
+
+**Cause:** Discord interaction tokens expire **15 minutes** after the command is invoked. If your agent takes too long to process and respond, the token becomes invalid.
+
+**Fix:**
+
+- **Acknowledge immediately** — send a deferred response within 3 seconds, then follow up with the actual reply
+- **Keep processing fast** — if your AI model takes a long time, acknowledge first and then edit the response
+
+```json
+{"action": "interaction_defer", "interaction_id": "1234567890"}
+```
+
+Then follow up within 15 minutes:
+
+```json
+{"action": "interaction_followup", "interaction_id": "1234567890", "content": "Here's your answer..."}
+```
+
+## Slash command sync delay
+
+**Symptom:** You registered a new slash command but it does not appear in Discord's command picker.
+
+**Cause:** Global slash commands can take up to **1 hour** to propagate. Guild-specific commands sync **instantly**.
+
+**Fix:** During development, always use guild-specific commands:
+
+```bash
+# Instant — guild-specific
+discli slash register --guild 1234567890 --name mycommand --description "Test command"
+
+# Slow — global (up to 1 hour)
+discli slash register --name mycommand --description "Test command"
+```
+
+Deploy globally only when your command is stable and tested.
+
+## Discord 2000 character limit
+
+**Symptom:** `discli message send` fails or truncates when the message content exceeds 2000 characters.
+
+**Cause:** Discord enforces a hard 2000-character limit on message content. This is an API-level restriction that cannot be bypassed.
+
+**Fix:**
+
+<Tabs>
+<Tab title="Split messages">
+Break long content into chunks under 2000 characters. Most AI models can be prompted to keep responses concise:
+
+```bash
+# In your system prompt
+"Keep responses under 1900 characters. If you need more space, split across multiple messages."
+```
+</Tab>
+
+<Tab title="Use streaming">
+In `discli serve`, use the streaming action to send content incrementally. The message is edited in place as new content arrives, and the final message stays within the limit:
+
+```json
+{"action": "message_send", "channel": "#general", "content": "First part of a long response..."}
+{"action": "message_send", "channel": "#general", "content": "Continued from above..."}
+```
+</Tab>
+</Tabs>
+
+## Rate limit 429 from Discord
+
+**Symptom:** You see HTTP 429 responses in stderr or your actions are delayed.
+
+**Cause:** Discord's API has per-route rate limits. Sending too many requests to the same endpoint in a short window triggers a 429 with a `retry_after` value.
+
+**Fix:** discli handles 429 responses automatically with exponential backoff. If you see persistent 429s:
+
+- Reduce the frequency of your actions
+- Avoid sending messages in tight loops
+- discli's built-in rate limiter (5 destructive actions per 5 seconds) is designed to stay well under Discord's limits
+
+<Callout type="note">
+discli's internal rate limiter is **stricter** than Discord's to provide a safety margin. If you are hitting discli's rate limiter, you are likely close to Discord's limits too.
+</Callout>
+
+## Cache misses in member_info
+
+**Symptom:** `discli member info @username` is slow or returns partial data the first time, then works fine on subsequent calls.
+
+**Cause:** discli caches member data from gateway events. If the bot recently started or the member has not been active, their data may not be in the cache. discli falls back to an API fetch, which is slower.
+
+**Fix:** This is expected behavior. The first lookup may take 100-500ms (API fetch) while subsequent lookups return in under 1ms (cache hit). No action needed unless latency is critical, in which case pre-warm the cache:
+
+```bash
+# Pre-warm by listing members at startup
+discli member list "My Server" --limit 1000 > /dev/null
+```
+
+## Bot mentions itself
+
+**Symptom:** Your agent responds to its own messages, creating an infinite loop that floods the channel.
+
+**Cause:** The bot receives its own `message_create` events. If your agent does not filter these out, it will respond to itself endlessly.
+
+**Fix:** Always filter out bot messages:
+
+```python
+for line in proc.stdout:
+    event = json.loads(line)
+    if event.get("type") == "message_create":
+        # Skip messages from bots (including ourselves)
+        if event["data"].get("is_bot", False):
+            continue
+        # Process the message...
+```
+
+<Callout type="danger">
+An unfiltered self-mention loop can generate hundreds of messages in seconds, potentially hitting rate limits and flooding the channel. Always filter `is_bot: true` events in your agent.
+</Callout>
+
+## Multiple serve instances
+
+**Symptom:** Starting a second `discli serve` with the same bot token causes the first instance to disconnect or both instances receive duplicate/missing events.
+
+**Cause:** Discord's gateway allows only one active connection per bot token (without sharding). Opening a second connection forces the first to reconnect, causing a reconnect loop.
+
+**Fix:**
+
+- Run only **one** `discli serve` instance per bot token
+- CLI commands (`discli message send`, `discli member list`, etc.) are stateless REST calls and can run concurrently without issues
+- If you need multiple agents, create separate bot tokens for each
+
+## Attachments and embeds
+
+**Symptom:** You want to send an image, file, or rich embed through `discli serve` but the action is not available.
+
+**Cause:** The serve JSONL protocol currently supports text-only messages. Attachments and rich embeds are not yet implemented in the bidirectional protocol.
+
+**Fix:**
+
+- For **CLI usage**, file attachments work via the `--file` flag:
+  ```bash
+  discli message send "#general" "Here's the report" --file ./report.csv
+  ```
+- For **serve mode**, this is a known limitation. Text-only messages are supported. Rich embeds and file attachments in the JSONL protocol are planned for a future release
+
+## Thread auto-archive
+
+**Symptom:** A thread your bot was active in becomes archived and the bot can no longer post to it.
+
+**Cause:** Discord automatically archives threads after a period of inactivity (1 hour, 24 hours, 3 days, or 7 days depending on server settings). Archived threads are read-only.
+
+**Fix:**
+
+- **Bot messages reset the archive timer** — as long as your bot (or any user) posts in the thread regularly, it stays active
+- To unarchive a thread programmatically, send a message to it — Discord automatically unarchives threads when a new message is sent
+- Set a longer auto-archive duration when creating threads:
+  ```bash
+  discli thread create "#general" "Support Thread" --auto-archive 1440  # 24 hours
+  ```

@@ -1,0 +1,110 @@
+---
+title: Why discli?
+description: When to choose discli and when to choose alternatives
+---
+
+# Why discli?
+
+discli is not the right tool for every Discord project. This page helps you decide quickly whether it fits your use case — or whether something else is a better match.
+
+## Decision guide
+
+Find the statement that matches your goal:
+
+<Accordion title="I want an AI agent on Discord">
+**Use discli.** This is exactly what it was built for. The bidirectional JSONL protocol in `discli serve` was designed for LLM tool-use. Your agent reads events from stdout, writes actions to stdin, and discli handles all Discord API communication, authentication, rate limiting, and security.
+
+```bash
+discli serve --events messages --profile safe-agent
+```
+
+Works with OpenAI, Claude, Llama, Mistral, or any model that can read and write JSON.
+</Accordion>
+
+<Accordion title="I want to script Discord from CI/bash">
+**Use discli.** Every command outputs structured JSON with `--json`. Pipe it to `jq`, feed it to another tool, or parse it in your CI pipeline.
+
+```bash
+# Post deploy notification
+discli message send "#deploys" "v2.3.1 deployed to production"
+
+# Get recent errors and pipe to a file
+discli --json message search "#errors" "critical" --limit 100 > errors.json
+```
+</Accordion>
+
+<Accordion title="I want a no-code moderation bot">
+**Use MEE6 or Dyno.** They have web dashboards with pre-built auto-moderation, leveling, and welcome messages. No terminal required. See [discli vs Hosted Bots](/comparisons/vs-hosted-bots) for a detailed comparison.
+</Accordion>
+
+<Accordion title="I want full API control in Python">
+**Use discord.py** for complex bots that need embeds, buttons, voice, modals, and fine-grained event handling. **Use discli** if you want simpler Python scripts that treat Discord as an I/O channel rather than a platform to build on. See [discli vs Discord Libraries](/comparisons/vs-discord-libraries).
+</Accordion>
+
+<Accordion title="I want to build a complex stateful bot">
+**Use discord.py or discord.js.** Conversation state machines, multi-step wizards, persistent user sessions, and custom caching strategies are better handled by a full library. discli is stateless by design — each command is independent.
+</Accordion>
+
+<Accordion title="I want to scrape/export messages">
+**Use discrawl** for bulk, read-only data export to CSV/JSON/SQLite. **Use discli** if you also need to write messages, listen to events in real time, or feed the data to an AI agent. See [discli vs CLI Tools](/comparisons/vs-cli-tools).
+</Accordion>
+
+<Accordion title="I need voice/video features">
+**Use discord.py or discord.js.** discli does not support voice channels, audio playback, or video. This is intentional — voice requires persistent binary streams that do not fit the CLI/JSONL model.
+</Accordion>
+
+## What makes discli unique
+
+No other tool combines all of these:
+
+<Steps>
+<Step title="Dual-mode operation">
+Use it as a **CLI** for one-off commands (`discli message send`) or as a **persistent server** for long-running agents (`discli serve`). Same tool, same configuration, same security model.
+</Step>
+
+<Step title="Agent-first design">
+The JSONL protocol is not an afterthought. Every event and every action is a single line of JSON. No parsing HTML, no scraping DOM, no reverse-engineering WebSocket frames. Your agent reads structured data and writes structured commands.
+</Step>
+
+<Step title="Security built-in">
+Permission profiles restrict what actions are allowed. Audit logs record every action taken. Rate limiting prevents runaway agents from flooding the API. These are not optional add-ons — they ship with discli.
+
+```bash
+# Create a restricted profile
+discli permission create safe-agent \
+  --allow message_send,message_list \
+  --deny channel_delete,member_ban
+
+# Run serve with that profile
+discli serve --profile safe-agent
+```
+</Step>
+
+<Step title="Language-agnostic">
+discli does not care what language your agent is written in. Python, Node.js, Go, Rust, Ruby, Bash, or anything that can spawn a process and read/write lines. No SDK required — just stdin and stdout.
+</Step>
+
+<Step title="Zero boilerplate">
+No client classes. No intent objects. No async event loop setup. No decorator registration. One install command, one config command, and you are sending messages.
+
+```bash
+pip install discord-cli-agent
+discli config set token YOUR_TOKEN
+discli message send "#general" "Hello, world."
+```
+</Step>
+</Steps>
+
+## Quick reference
+
+| Use case | Best tool | Runner-up |
+|---|---|---|
+| AI agent on Discord | **discli** | Custom discord.py bot |
+| Bash/CI scripting | **discli** | curl + Discord webhook |
+| No-code moderation | **MEE6 / Dyno** | Carl-bot |
+| Full API control (Python) | **discord.py** | discli for simpler cases |
+| Full API control (JS) | **discord.js** | discli for simpler cases |
+| Bulk message export | **discrawl** | discli |
+| Voice / audio | **discord.py** | discord.js |
+| Buttons / embeds / modals | **discord.py / discord.js** | discli (text only currently) |
+| Privacy-first bot | **discli** (self-hosted) | Self-hosted discord.py bot |

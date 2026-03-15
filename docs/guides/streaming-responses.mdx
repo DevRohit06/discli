@@ -1,0 +1,319 @@
+---
+title: Streaming Responses
+description: Show AI thinking in real-time with token-by-token streaming
+---
+
+Streaming lets your agent display responses as they are being generated, just like ChatGPT or Claude typing in real-time. Instead of a long pause followed by a wall of text, users see the response appear word by word.
+
+## Why Streaming Matters
+
+Without streaming, a user mentioning your bot sees:
+
+1. Nothing for 3-10 seconds (while your LLM generates)
+2. A complete message appears all at once
+
+With streaming, they see:
+
+1. A message appears immediately with "..."
+2. Text flows in progressively as it is generated
+3. The final message is clean and complete
+
+This dramatically improves perceived responsiveness, especially for longer AI-generated responses.
+
+## The Three-Step Protocol
+
+Streaming in discli uses three actions sent to `discli serve` via stdin:
+
+<Steps>
+<Step title="stream_start">
+Creates a placeholder message in the channel. Returns a `stream_id` that you use for subsequent chunks.
+
+```json
+→ {"action": "stream_start", "channel_id": "444555666", "reply_to": "101010", "req_id": "s1"}
+← {"event": "response", "req_id": "s1", "stream_id": "a1b2c3d4", "message_id": "131415"}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `channel_id` | Yes | Channel to send the stream in |
+| `reply_to` | No | Message ID to reply to |
+| `interaction_token` | No | Slash command interaction to respond to |
+| `req_id` | Recommended | To receive the `stream_id` back |
+
+</Step>
+<Step title="stream_chunk">
+Appends text to the stream buffer. discli automatically flushes the buffer to Discord every 1.5 seconds by editing the placeholder message.
+
+```json
+→ {"action": "stream_chunk", "stream_id": "a1b2c3d4", "content": "Hello, "}
+→ {"action": "stream_chunk", "stream_id": "a1b2c3d4", "content": "I can "}
+→ {"action": "stream_chunk", "stream_id": "a1b2c3d4", "content": "help with that!"}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `stream_id` | Yes | From the `stream_start` response |
+| `content` | Yes | Text to append to the buffer |
+
+</Step>
+<Step title="stream_end">
+Performs a final edit with the complete content and cleans up the stream state.
+
+```json
+→ {"action": "stream_end", "stream_id": "a1b2c3d4", "req_id": "s2"}
+← {"event": "response", "req_id": "s2", "ok": true, "message_id": "131415"}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `stream_id` | Yes | From the `stream_start` response |
+| `req_id` | No | To confirm completion |
+
+</Step>
+</Steps>
+
+## The 1.5-Second Flush Interval
+
+Discord rate-limits message edits. discli uses a 1.5-second flush interval to stay within limits:
+
+- When you send `stream_chunk`, the content is appended to an in-memory buffer
+- A background task edits the Discord message every 1.5 seconds with the current buffer content
+- Only changed content triggers an edit (no redundant API calls)
+- `stream_end` performs one final edit with the complete text
+
+This means users see updates roughly every 1.5 seconds, which feels responsive without hitting rate limits.
+
+```
+Time:  0s      1.5s     3.0s     4.5s     5.0s
+       │        │        │        │        │
+Chunks: Hello,  I can    help     with     that!
+Edits:  "..."   "Hello, I can "  "Hello, I can help with "  (stream_end) "Hello, I can help with that!"
+```
+
+## Full Working Example
+
+This example connects to an OpenAI-compatible API and streams the response to Discord.
+
+```python
+import json
+import subprocess
+import threading
+import time
+from queue import Queue
+
+
+class StreamingAgent:
+    def __init__(self):
+        self.proc = subprocess.Popen(
+            ["discli", "serve", "--events", "messages"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        self.events = Queue()
+        self.pending = {}
+        self._counter = 0
+
+        threading.Thread(target=self._reader, daemon=True).start()
+
+    def _reader(self):
+        for line in self.proc.stdout:
+            data = json.loads(line.strip())
+            rid = data.get("req_id")
+            if rid in self.pending:
+                self.pending[rid].put(data)
+            else:
+                self.events.put(data)
+
+    def send(self, action, wait=False):
+        self._counter += 1
+        rid = f"r{self._counter}"
+        action["req_id"] = rid
+        if wait:
+            q = Queue()
+            self.pending[rid] = q
+        self.proc.stdin.write(json.dumps(action) + "\n")
+        self.proc.stdin.flush()
+        if wait:
+            result = q.get(timeout=30)
+            del self.pending[rid]
+            return result
+        return None
+
+    def stream_to_discord(self, channel_id, reply_to, text_generator):
+        """Stream text from a generator to a Discord message."""
+
+        # Step 1: Start the stream
+        self.send({"action": "typing_start", "channel_id": channel_id})
+        result = self.send({
+            "action": "stream_start",
+            "channel_id": channel_id,
+            "reply_to": reply_to,
+        }, wait=True)
+        self.send({"action": "typing_stop", "channel_id": channel_id})
+
+        if "error" in result:
+            # Fallback: collect all text and send as a regular message
+            full_text = "".join(text_generator)
+            self.send({
+                "action": "reply",
+                "channel_id": channel_id,
+                "message_id": reply_to,
+                "content": full_text,
+            })
+            return
+
+        stream_id = result["stream_id"]
+
+        # Step 2: Send chunks as they arrive
+        try:
+            for chunk in text_generator:
+                self.send({
+                    "action": "stream_chunk",
+                    "stream_id": stream_id,
+                    "content": chunk,
+                })
+        except Exception as e:
+            # Send error message as final chunk
+            self.send({
+                "action": "stream_chunk",
+                "stream_id": stream_id,
+                "content": f"\n\n[Error: {e}]",
+            })
+
+        # Step 3: Finalize
+        self.send({"action": "stream_end", "stream_id": stream_id}, wait=True)
+
+
+def call_llm(prompt):
+    """Call an OpenAI-compatible API and yield response chunks."""
+    import openai
+
+    client = openai.OpenAI()  # Uses OPENAI_API_KEY env var
+    stream = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
+
+
+def main():
+    agent = StreamingAgent()
+
+    # Wait for ready
+    while True:
+        event = agent.events.get()
+        if event.get("event") == "ready":
+            print(f"Ready as {event['bot_name']}")
+            break
+
+    # Process messages
+    while True:
+        event = agent.events.get()
+        if event.get("event") != "message":
+            continue
+        if not event.get("mentions_bot") or event.get("is_bot"):
+            continue
+
+        agent.stream_to_discord(
+            channel_id=event["channel_id"],
+            reply_to=event["message_id"],
+            text_generator=call_llm(event["content"]),
+        )
+
+
+if __name__ == "__main__":
+    main()
+```
+
+## Streaming with Slash Commands
+
+When a user invokes a slash command, the interaction is deferred with a "thinking" indicator. You can stream the response using the `interaction_token`:
+
+```python
+def handle_slash_command(agent, event):
+    stream_result = agent.send({
+        "action": "stream_start",
+        "channel_id": event["channel_id"],
+        "interaction_token": event["interaction_token"],
+    }, wait=True)
+
+    stream_id = stream_result["stream_id"]
+
+    for chunk in call_llm(event["args"].get("question", "")):
+        agent.send({
+            "action": "stream_chunk",
+            "stream_id": stream_id,
+            "content": chunk,
+        })
+
+    agent.send({"action": "stream_end", "stream_id": stream_id})
+```
+
+<Callout type="warning">
+Interaction tokens expire after 15 minutes. If your LLM takes longer than that, the `stream_start` with an `interaction_token` will fail. For long-running tasks, use a regular `stream_start` with just the `channel_id` and send a followup message to acknowledge the slash command separately.
+</Callout>
+
+## Handling Long Responses
+
+Discord messages have a 2,000 character limit. discli handles overflow automatically:
+
+- During streaming, the buffer is truncated to 2,000 characters for the edit
+- On `stream_end`, if the final content exceeds 2,000 characters, discli edits the original message with the first 2,000 characters and sends the remainder as follow-up messages
+
+You do not need to handle this in your agent code.
+
+## Edge Cases
+
+<Accordion title="What if stream_end is never sent?">
+The stream will remain in memory indefinitely. The flush loop continues running, but since no new chunks arrive, no edits are made after the last chunk. The message stays in whatever state it was last flushed to.
+
+Always wrap your streaming logic in a try/finally to ensure `stream_end` is called:
+
+```python
+stream_id = None
+try:
+    result = agent.send({"action": "stream_start", ...}, wait=True)
+    stream_id = result.get("stream_id")
+    for chunk in text_generator:
+        agent.send({"action": "stream_chunk", "stream_id": stream_id, "content": chunk})
+finally:
+    if stream_id:
+        agent.send({"action": "stream_end", "stream_id": stream_id})
+```
+</Accordion>
+
+<Accordion title="What if I send chunks too fast?">
+No problem. Chunks are appended to an in-memory buffer immediately. The flush loop only edits Discord every 1.5 seconds, so rapid chunks are batched into a single edit. There is no rate limiting on the chunk action itself.
+</Accordion>
+
+<Accordion title="What if I send an empty stream?">
+If you call `stream_start` followed immediately by `stream_end` with no chunks, the message will be edited to "(empty response)".
+</Accordion>
+
+<Accordion title="Can I stream to multiple channels simultaneously?">
+Yes. Each `stream_start` returns a unique `stream_id`. You can have multiple active streams, each with its own buffer and flush loop.
+</Accordion>
+
+<Accordion title="What if the Discord edit fails?">
+discli catches `HTTPException` on edits silently. If Discord is temporarily unavailable, the next flush cycle will retry with the latest buffer content. No chunks are lost.
+</Accordion>
+
+## Timing Considerations
+
+| Scenario | Recommendation |
+|----------|---------------|
+| LLM generates faster than 1.5s flush | Normal. Chunks batch, user sees smooth updates. |
+| LLM generates slower than 1.5s per token | User sees occasional jumps. Consider buffering a few tokens before sending as a chunk. |
+| Very short response (<10 tokens) | Streaming adds overhead for minimal benefit. Consider a direct `reply` instead. |
+| Very long response (>2000 chars) | Handled automatically. Overflow goes to follow-up messages. |
+
+## Next Steps
+
+- [Building Agents](/guides/building-agents) -- See streaming in the Level 3 and Level 5 agent examples
+- [Serve Mode](/guides/serve-mode) -- Full protocol reference for all actions and events
+- [Slash Commands](/guides/slash-commands) -- Stream responses to slash command interactions

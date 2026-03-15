@@ -1,0 +1,286 @@
+---
+title: Configuration
+description: Configure your bot token and permission profiles
+---
+
+# Configuration
+
+discli uses a layered configuration system for authentication and a profile-based system for access control. This page covers how to set up your bot token, manage configuration, and use permission profiles.
+
+## Bot token
+
+Your Discord bot token is the only required configuration. discli resolves the token using the following priority order:
+
+| Priority | Method | Example |
+|----------|--------|---------|
+| 1 (highest) | `--token` flag | `discli --token YOUR_TOKEN server list` |
+| 2 | `DISCORD_BOT_TOKEN` environment variable | `export DISCORD_BOT_TOKEN=your_token` |
+| 3 (lowest) | Config file (`~/.discli/config.json`) | `discli config set token YOUR_TOKEN` |
+
+This means a `--token` flag always wins, followed by the environment variable, followed by the saved config file. Use whichever method fits your workflow.
+
+### Option 1: Config file (recommended for local use)
+
+Store the token persistently so you do not have to provide it every time:
+
+```bash
+discli config set token YOUR_BOT_TOKEN
+```
+
+```
+Set token.
+```
+
+This writes to `~/.discli/config.json`:
+
+```json
+{
+  "token": "YOUR_BOT_TOKEN"
+}
+```
+
+<Callout type="warning">
+  The config file stores your token in plain text. Make sure `~/.discli/config.json` has appropriate file permissions. On macOS/Linux, restrict access with:
+
+  ```bash
+  chmod 600 ~/.discli/config.json
+  ```
+</Callout>
+
+### Option 2: Environment variable (recommended for CI/containers)
+
+Set the `DISCORD_BOT_TOKEN` environment variable:
+
+<Tabs>
+  <Tab title="macOS / Linux">
+    ```bash
+    export DISCORD_BOT_TOKEN=your_token
+    ```
+
+    Add this to your `~/.bashrc`, `~/.zshrc`, or shell profile to persist across sessions.
+  </Tab>
+
+  <Tab title="Windows (PowerShell)">
+    ```powershell
+    $env:DISCORD_BOT_TOKEN = "your_token"
+    ```
+
+    To persist, set it as a system or user environment variable via Settings or:
+
+    ```powershell
+    [System.Environment]::SetEnvironmentVariable("DISCORD_BOT_TOKEN", "your_token", "User")
+    ```
+  </Tab>
+
+  <Tab title="Docker / CI">
+    ```bash
+    docker run -e DISCORD_BOT_TOKEN=your_token my-agent
+    ```
+
+    Or in GitHub Actions:
+
+    ```yaml
+    env:
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+    ```
+  </Tab>
+</Tabs>
+
+### Option 3: Per-command flag
+
+Pass the token directly for one-off commands:
+
+```bash
+discli --token YOUR_BOT_TOKEN server list
+```
+
+<Callout type="note">
+  The `--token` flag is placed **before** the subcommand, not after it. This is because it is a global option on the `discli` CLI group.
+</Callout>
+
+## Viewing current configuration
+
+Check what configuration is currently set:
+
+```bash
+discli config show
+```
+
+```
+token: your-bot-token
+```
+
+The token value is truncated for security. For the full JSON representation:
+
+```bash
+discli --json config show
+```
+
+```json
+{
+  "token": "your-bot-token-here"
+}
+```
+
+## Permission profiles
+
+Permission profiles control which commands your bot (or agent) is allowed to run. This is especially useful when giving an AI agent access to discli — you can restrict it to a safe subset of operations.
+
+### Available profiles
+
+| Profile | Description | Use case |
+|---------|-------------|----------|
+| **full** | Full access to all commands | Local development, trusted agents |
+| **chat** | Messages, reactions, threads, typing, DMs, listen, serve | Chatbot agents that should not moderate |
+| **readonly** | List, info, get, search, listen only | Monitoring, logging, read-only agents |
+| **moderation** | Full access including moderation | Moderation bots with kick/ban capability |
+
+### Setting the active profile
+
+There are three ways to set the permission profile, with the same priority pattern as tokens:
+
+**Persistently (saved to disk):**
+
+```bash
+discli permission set chat
+```
+
+```
+Permission profile set to: chat (Messages, reactions, threads, typing only)
+```
+
+This writes the active profile to `~/.discli/permissions.json`.
+
+**Per-command (flag):**
+
+```bash
+discli --profile readonly message list "#general"
+```
+
+The `--profile` flag overrides the saved profile for that single invocation.
+
+**Via environment variable:**
+
+```bash
+export DISCLI_PROFILE=readonly
+```
+
+This takes priority over the saved profile but is overridden by the `--profile` flag.
+
+### Viewing the active profile
+
+```bash
+discli permission show
+```
+
+```
+Active profile: chat
+Description: Messages, reactions, threads, typing only
+Allowed: message, reaction, thread, typing, dm, listen, serve, config, server
+Denied: member kick, member ban, member unban, channel delete, role delete, role create, channel create
+```
+
+### Listing all profiles
+
+```bash
+discli permission profiles
+```
+
+```
+  full: Full access to all commands
+  chat: Messages, reactions, threads, typing only
+  readonly: Read-only: list, info, get, search, listen
+  moderation: Full access including moderation
+```
+
+<Callout type="tip">
+  When building an AI agent, start with the `readonly` or `chat` profile and only escalate to `full` once you have tested the agent's behavior. This follows the principle of least privilege and prevents accidental destructive actions.
+</Callout>
+
+## Destructive action safeguards
+
+Certain commands are considered destructive and require confirmation before execution:
+
+- `member kick`
+- `member ban`
+- `member unban`
+- `channel delete`
+- `message delete`
+- `role delete`
+
+When you run a destructive command, discli prompts for confirmation:
+
+```
+⚠ Destructive action: member kick (user: Alice). Continue? [y/N]
+```
+
+To skip the prompt (useful in scripts and automation), pass the `--yes` or `-y` flag:
+
+```bash
+discli --yes member kick "My Server" @spammer
+```
+
+<Callout type="warning">
+  Use `--yes` with caution, especially in automated pipelines. Combined with a restrictive permission profile, this gives you safe automation without accidental damage.
+</Callout>
+
+## Audit log
+
+discli records every command execution to an audit log at `~/.discli/audit.log`. This is useful for tracking what actions an agent has taken.
+
+```bash
+# View recent audit entries
+discli audit show --limit 10
+
+# JSON output
+discli --json audit show --limit 5
+
+# Clear the log
+discli audit clear
+```
+
+## Configuration file reference
+
+### `~/.discli/config.json`
+
+```json
+{
+  "token": "YOUR_BOT_TOKEN"
+}
+```
+
+### `~/.discli/permissions.json`
+
+```json
+{
+  "active_profile": "chat",
+  "profiles": {}
+}
+```
+
+The `profiles` key can hold custom profile definitions, though the four built-in profiles cover most use cases.
+
+### `~/.discli/audit.log`
+
+A newline-delimited JSON file where each line is an audit entry:
+
+```json
+{"timestamp": "2026-03-15T10:32:00+00:00", "command": "message send", "args": {"channel": "general", "content": "Hello"}, "result": "ok", "user": ""}
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" href="/getting-started/quickstart">
+    Send your first message now that your token is configured.
+  </Card>
+  <Card title="Your First Bot" href="/getting-started/your-first-bot">
+    Build a working bot agent using discli serve.
+  </Card>
+  <Card title="Security & Permissions" href="/guides/security-permissions">
+    Deep dive into the security model, custom profiles, and audit logging.
+  </Card>
+  <Card title="CLI Commands Reference" href="/reference/cli-commands">
+    Full reference for every command, flag, and option.
+  </Card>
+</CardGroup>

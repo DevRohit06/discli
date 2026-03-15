@@ -1,0 +1,937 @@
+---
+title: Serve Actions
+description: Complete reference for all actions accepted via stdin in serve mode
+---
+
+# Serve Actions
+
+When running `discli serve`, you send JSON objects (one per line) to stdin. Every action must include an `"action"` field. An optional `"req_id"` field will be echoed back in the response for correlation.
+
+**General request format:**
+
+```json
+{"action": "<action_name>", "req_id": "optional-correlation-id", ...fields}
+```
+
+**General response format:**
+
+```json
+{"event": "response", "status": "ok", "req_id": "1", ...result_fields}
+```
+
+On error, the response contains an `"error"` field instead of `"ok"`:
+
+```json
+{"event": "response", "error": "Channel not found: 999", "req_id": "1"}
+```
+
+---
+
+## Messaging
+
+### send
+
+Send a message to a channel.
+
+**Request:**
+
+```json
+{"action": "send", "channel_id": "123456", "content": "Hello!", "req_id": "1"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "message_id": "789", "req_id": "1"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Target channel ID |
+| `content` | no | string | Message text |
+| `files` | no | string[] | Local file paths to attach |
+| `req_id` | no | string | Correlation ID |
+
+### reply
+
+Reply to a specific message.
+
+**Request:**
+
+```json
+{"action": "reply", "channel_id": "123456", "message_id": "111", "content": "Got it!", "req_id": "2"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "message_id": "222", "req_id": "2"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel containing the message |
+| `message_id` | yes | string | Message to reply to |
+| `content` | no | string | Reply text |
+| `files` | no | string[] | Local file paths to attach |
+| `req_id` | no | string | Correlation ID |
+
+### edit
+
+Edit an existing message (must be authored by the bot).
+
+**Request:**
+
+```json
+{"action": "edit", "channel_id": "123456", "message_id": "789", "content": "Updated text", "req_id": "3"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "3"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel containing the message |
+| `message_id` | yes | string | Message to edit |
+| `content` | no | string | New message content |
+| `req_id` | no | string | Correlation ID |
+
+### delete
+
+Delete a message.
+
+**Request:**
+
+```json
+{"action": "delete", "channel_id": "123456", "message_id": "789", "req_id": "4"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "4"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel containing the message |
+| `message_id` | yes | string | Message to delete |
+| `req_id` | no | string | Correlation ID |
+
+### message_pin
+
+Pin a message in a channel.
+
+**Request:**
+
+```json
+{"action": "message_pin", "channel_id": "123456", "message_id": "789", "req_id": "5"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "5"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel containing the message |
+| `message_id` | yes | string | Message to pin |
+| `req_id` | no | string | Correlation ID |
+
+### message_unpin
+
+Unpin a message in a channel.
+
+**Request:**
+
+```json
+{"action": "message_unpin", "channel_id": "123456", "message_id": "789", "req_id": "6"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "6"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel containing the message |
+| `message_id` | yes | string | Message to unpin |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Streaming
+
+Streaming lets you send a response that updates in real-time (e.g., token-by-token LLM output). The flow is: `stream_start` to create a placeholder message, `stream_chunk` to append text, and `stream_end` to finalize. The message is flushed to Discord every 1.5 seconds during streaming.
+
+### stream_start
+
+Start a streaming message. Creates a placeholder message (`"..."`) in the channel.
+
+**Request:**
+
+```json
+{"action": "stream_start", "channel_id": "123456", "req_id": "10"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "stream_id": "a1b2c3d4", "message_id": "789", "req_id": "10"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel to send in |
+| `reply_to` | no | string | Message ID to reply to |
+| `interaction_token` | no | string | Interaction token to respond to a slash command |
+| `req_id` | no | string | Correlation ID |
+
+### stream_chunk
+
+Append text to an active stream. Content is buffered and flushed periodically.
+
+**Request:**
+
+```json
+{"action": "stream_chunk", "stream_id": "a1b2c3d4", "content": "Hello ", "req_id": "11"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "11"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `stream_id` | yes | string | Stream ID from `stream_start` |
+| `content` | no | string | Text to append |
+| `req_id` | no | string | Correlation ID |
+
+### stream_end
+
+Finalize a streaming message. Performs a final edit with the complete content. If the content exceeds 2000 characters, overflow is split into follow-up messages.
+
+**Request:**
+
+```json
+{"action": "stream_end", "stream_id": "a1b2c3d4", "req_id": "12"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "message_id": "789", "req_id": "12"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `stream_id` | yes | string | Stream ID from `stream_start` |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Interactions
+
+### interaction_followup
+
+Send a follow-up response to a deferred slash command interaction.
+
+**Request:**
+
+```json
+{"action": "interaction_followup", "interaction_token": "uuid-token", "content": "Done!", "req_id": "20"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "20"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `interaction_token` | yes | string | Token from the `slash_command` event |
+| `content` | no | string | Follow-up message text |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Typing / Presence
+
+### typing_start
+
+Start showing a typing indicator in a channel. The indicator persists until `typing_stop` is sent or the bot sends a message.
+
+**Request:**
+
+```json
+{"action": "typing_start", "channel_id": "123456", "req_id": "30"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "30"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel ID |
+| `req_id` | no | string | Correlation ID |
+
+### typing_stop
+
+Stop the typing indicator in a channel.
+
+**Request:**
+
+```json
+{"action": "typing_stop", "channel_id": "123456", "req_id": "31"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "31"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel ID |
+| `req_id` | no | string | Correlation ID |
+
+### presence
+
+Set the bot's online status and activity.
+
+**Request:**
+
+```json
+{"action": "presence", "status": "dnd", "activity_type": "watching", "activity_text": "the logs", "req_id": "32"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "32"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `status` | no | string | `online`, `idle`, `dnd`, or `invisible` (default: `online`) |
+| `activity_type` | no | string | `playing`, `watching`, `listening`, or `competing` |
+| `activity_text` | no | string | Activity display text |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Reactions
+
+### reaction_add
+
+Add a reaction to a message.
+
+**Request:**
+
+```json
+{"action": "reaction_add", "channel_id": "123456", "message_id": "789", "emoji": "thumbsup", "req_id": "40"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "40"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel containing the message |
+| `message_id` | yes | string | Message to react to |
+| `emoji` | yes | string | Emoji character or custom emoji string |
+| `req_id` | no | string | Correlation ID |
+
+### reaction_remove
+
+Remove the bot's reaction from a message.
+
+**Request:**
+
+```json
+{"action": "reaction_remove", "channel_id": "123456", "message_id": "789", "emoji": "thumbsup", "req_id": "41"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "req_id": "41"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel containing the message |
+| `message_id` | yes | string | Message to remove reaction from |
+| `emoji` | yes | string | Emoji character or custom emoji string |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Threads
+
+### thread_create
+
+Create a new thread, optionally from an existing message.
+
+**Request:**
+
+```json
+{"action": "thread_create", "channel_id": "123456", "name": "Discussion", "message_id": "789", "req_id": "50"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "thread_id": "999", "thread_name": "Discussion", "req_id": "50"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Parent channel ID |
+| `name` | yes | string | Thread name |
+| `message_id` | no | string | Message to create thread from (omit for standalone thread) |
+| `auto_archive_duration` | no | integer | Auto-archive after N minutes (default: 1440) |
+| `content` | no | string | Initial message to send in the thread |
+| `req_id` | no | string | Correlation ID |
+
+### thread_send
+
+Send a message to an existing thread.
+
+**Request:**
+
+```json
+{"action": "thread_send", "thread_id": "999", "content": "Hello thread!", "req_id": "51"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "message_id": "1000", "req_id": "51"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `thread_id` | yes | string | Thread ID |
+| `content` | no | string | Message text |
+| `files` | no | string[] | Local file paths to attach |
+| `req_id` | no | string | Correlation ID |
+
+### thread_list
+
+List active threads in a channel.
+
+**Request:**
+
+```json
+{"action": "thread_list", "channel_id": "123456", "req_id": "52"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "threads": [
+    {"id": "999", "name": "Discussion", "message_count": 5, "member_count": 3, "archived": false}
+  ],
+  "req_id": "52"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel ID |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Polls
+
+### poll_send
+
+Create a poll in a channel.
+
+**Request:**
+
+```json
+{
+  "action": "poll_send",
+  "channel_id": "123456",
+  "question": "Favorite AI?",
+  "answers": ["Claude", "Gemini", "ChatGPT"],
+  "duration_hours": 24,
+  "multiple": false,
+  "req_id": "60"
+}
+```
+
+Answers can also be objects with emoji:
+
+```json
+{
+  "action": "poll_send",
+  "channel_id": "123456",
+  "question": "Vote!",
+  "answers": [{"text": "Yes", "emoji": "white_check_mark"}, {"text": "No", "emoji": "x"}],
+  "req_id": "61"
+}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "message_id": "789", "req_id": "60"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel ID |
+| `question` | yes | string | Poll question |
+| `answers` | yes | array | List of answer strings or `{"text": "...", "emoji": "..."}` objects (min 2) |
+| `duration_hours` | no | integer | Duration in hours (default: 24) |
+| `multiple` | no | boolean | Allow multiple selections (default: false) |
+| `content` | no | string | Optional message text alongside the poll |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Channels
+
+### channel_list
+
+List channels across all servers or a specific server.
+
+**Request:**
+
+```json
+{"action": "channel_list", "guild_id": "123456", "req_id": "70"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "channels": [
+    {"id": "111", "name": "general", "type": "text", "server": "My Server", "server_id": "123456"}
+  ],
+  "req_id": "70"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `guild_id` | no | string | Server ID (omit for all servers) |
+| `req_id` | no | string | Correlation ID |
+
+### channel_create
+
+Create a channel in a server.
+
+**Request:**
+
+```json
+{"action": "channel_create", "guild_id": "123456", "name": "new-channel", "type": "text", "req_id": "71"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "channel_id": "222", "name": "new-channel", "req_id": "71"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `guild_id` | yes | string | Server ID |
+| `name` | yes | string | Channel name |
+| `type` | no | string | `text`, `voice`, or `category` (default: `text`) |
+| `req_id` | no | string | Correlation ID |
+
+### channel_info
+
+Get details about a channel.
+
+**Request:**
+
+```json
+{"action": "channel_info", "channel_id": "123456", "req_id": "72"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "id": "123456",
+  "name": "general",
+  "type": "text",
+  "server": "My Server",
+  "server_id": "789",
+  "topic": "General discussion",
+  "created_at": "2024-01-01T00:00:00+00:00",
+  "req_id": "72"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel ID |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Members
+
+### member_list
+
+List members of a server.
+
+**Request:**
+
+```json
+{"action": "member_list", "guild_id": "123456", "limit": 50, "req_id": "80"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "members": [
+    {"id": "111", "name": "alice", "nick": null, "bot": false}
+  ],
+  "req_id": "80"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `guild_id` | yes | string | Server ID |
+| `limit` | no | integer | Max members to return (default: 50) |
+| `req_id` | no | string | Correlation ID |
+
+### member_info
+
+Get details about a specific member.
+
+**Request:**
+
+```json
+{"action": "member_info", "guild_id": "123456", "member_id": "111", "req_id": "81"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "id": "111",
+  "name": "alice",
+  "nick": null,
+  "bot": false,
+  "roles": [{"id": "222", "name": "Admin"}],
+  "joined_at": "2024-01-01T00:00:00+00:00",
+  "req_id": "81"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `guild_id` | yes | string | Server ID |
+| `member_id` | yes | string | Member user ID |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Roles
+
+### role_list
+
+List roles in a server.
+
+**Request:**
+
+```json
+{"action": "role_list", "guild_id": "123456", "req_id": "90"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "roles": [
+    {"id": "222", "name": "Admin", "color": "#ff0000", "members": 3}
+  ],
+  "req_id": "90"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `guild_id` | yes | string | Server ID |
+| `req_id` | no | string | Correlation ID |
+
+### role_assign
+
+Assign a role to a member.
+
+**Request:**
+
+```json
+{"action": "role_assign", "guild_id": "123456", "member_id": "111", "role_id": "222", "req_id": "91"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "member": "alice", "role": "Admin", "req_id": "91"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `guild_id` | yes | string | Server ID |
+| `member_id` | yes | string | Member user ID |
+| `role_id` | yes | string | Role ID to assign |
+| `req_id` | no | string | Correlation ID |
+
+### role_remove
+
+Remove a role from a member.
+
+**Request:**
+
+```json
+{"action": "role_remove", "guild_id": "123456", "member_id": "111", "role_id": "222", "req_id": "92"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "member": "alice", "role": "Admin", "req_id": "92"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `guild_id` | yes | string | Server ID |
+| `member_id` | yes | string | Member user ID |
+| `role_id` | yes | string | Role ID to remove |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## DMs
+
+### dm_send
+
+Send a direct message to a user.
+
+**Request:**
+
+```json
+{"action": "dm_send", "user_id": "111", "content": "Hello!", "req_id": "100"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "message_id": "222", "recipient": "alice", "req_id": "100"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `user_id` | yes | string | Recipient user ID |
+| `content` | no | string | Message text |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Queries
+
+### message_list
+
+List recent messages in a channel.
+
+**Request:**
+
+```json
+{"action": "message_list", "channel_id": "123456", "limit": 20, "req_id": "110"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "messages": [
+    {
+      "id": "789",
+      "author": "alice",
+      "author_id": "111",
+      "content": "Hello!",
+      "timestamp": "2024-01-01T12:00:00+00:00",
+      "attachments": []
+    }
+  ],
+  "req_id": "110"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel ID |
+| `limit` | no | integer | Max messages (default: 20) |
+| `req_id` | no | string | Correlation ID |
+
+### message_get
+
+Fetch a single message by ID.
+
+**Request:**
+
+```json
+{"action": "message_get", "channel_id": "123456", "message_id": "789", "req_id": "111"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "id": "789",
+  "author": "alice",
+  "author_id": "111",
+  "content": "Hello!",
+  "timestamp": "2024-01-01T12:00:00+00:00",
+  "attachments": [],
+  "embeds": [],
+  "reply_to": null,
+  "req_id": "111"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel ID |
+| `message_id` | yes | string | Message ID |
+| `req_id` | no | string | Correlation ID |
+
+### message_search
+
+Search messages in a channel by content.
+
+**Request:**
+
+```json
+{"action": "message_search", "channel_id": "123456", "query": "hello", "limit": 100, "author": "alice", "req_id": "112"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "messages": [
+    {"id": "789", "author": "alice", "content": "Hello world!", "timestamp": "2024-01-01T12:00:00+00:00"}
+  ],
+  "req_id": "112"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Channel ID |
+| `query` | no | string | Case-insensitive search string |
+| `limit` | no | integer | Messages to scan (default: 100) |
+| `author` | no | string | Filter by author name |
+| `req_id` | no | string | Correlation ID |
+
+---
+
+## Server
+
+### server_list
+
+List all servers the bot is in.
+
+**Request:**
+
+```json
+{"action": "server_list", "req_id": "120"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "servers": [
+    {"id": "123456", "name": "My Server", "member_count": 42}
+  ],
+  "req_id": "120"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `req_id` | no | string | Correlation ID |
+
+### server_info
+
+Get details about a specific server.
+
+**Request:**
+
+```json
+{"action": "server_info", "guild_id": "123456", "req_id": "121"}
+```
+
+**Response:**
+
+```json
+{
+  "event": "response",
+  "ok": true,
+  "id": "123456",
+  "name": "My Server",
+  "owner": "alice",
+  "member_count": 42,
+  "channel_count": 10,
+  "role_count": 5,
+  "created_at": "2024-01-01T00:00:00+00:00",
+  "req_id": "121"
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `guild_id` | yes | string | Server ID |
+| `req_id` | no | string | Correlation ID |

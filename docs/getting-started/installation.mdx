@@ -1,0 +1,167 @@
+---
+title: Installation
+description: Install discli on macOS, Linux, or Windows
+---
+
+# Installation
+
+discli runs on **Python 3.10+** and works on macOS, Linux, and Windows. Pick the installation method that suits your workflow.
+
+## Requirements
+
+Before installing, make sure you have:
+
+- **Python 3.10 or later** — check with `python --version` or `python3 --version`
+- **A Discord bot token** — you will need this to authenticate. See [Your First Bot](/getting-started/your-first-bot) if you do not have one yet.
+
+## Install discli
+
+<Tabs>
+  <Tab title="pip (recommended)">
+    The fastest way to install discli is from PyPI:
+
+    ```bash
+    pip install discord-cli-agent
+    ```
+
+    This installs the `discli` command globally along with its dependencies ([discord.py](https://pypi.org/project/discord.py/) and [click](https://pypi.org/project/click/)).
+
+    <Callout type="tip">
+      If you use virtual environments (recommended for project isolation), activate your environment first:
+
+      ```bash
+      python -m venv .venv
+      source .venv/bin/activate   # macOS/Linux
+      .venv\Scripts\activate      # Windows
+      pip install discord-cli-agent
+      ```
+    </Callout>
+  </Tab>
+
+  <Tab title="macOS / Linux (curl)">
+    Use the one-line installer to download and set up discli automatically:
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.sh | bash
+    ```
+
+    This script will:
+    1. Check that Python 3.10+ is available
+    2. Install `discord-cli-agent` via pip
+    3. Verify the installation
+
+    <Callout type="note">
+      If you prefer not to pipe to bash, you can download the script first and inspect it:
+
+      ```bash
+      curl -fsSL https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.sh -o install.sh
+      less install.sh
+      bash install.sh
+      ```
+    </Callout>
+  </Tab>
+
+  <Tab title="Windows (PowerShell)">
+    Open PowerShell and run:
+
+    ```powershell
+    irm https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.ps1 | iex
+    ```
+
+    This script handles Python detection and installs `discord-cli-agent` via pip.
+
+    <Callout type="warning">
+      You may need to adjust your PowerShell execution policy first:
+
+      ```powershell
+      Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+      ```
+    </Callout>
+  </Tab>
+
+  <Tab title="From source">
+    Clone the repository and install in development mode:
+
+    ```bash
+    git clone https://github.com/DevRohit06/discli.git
+    cd discli
+    pip install -e ".[dev]"
+    ```
+
+    This installs discli in editable mode with development dependencies (pytest, pytest-asyncio), so you can modify the source and see changes immediately.
+  </Tab>
+</Tabs>
+
+## Verify the installation
+
+After installing, confirm that discli is available:
+
+```bash
+discli --help
+```
+
+You should see output like:
+
+```
+Usage: discli [OPTIONS] COMMAND [ARGS]...
+
+  discli — Discord CLI for AI agents.
+
+Options:
+  --token TEXT                     Discord bot token.
+  --json                          Output as JSON.
+  -y, --yes                       Skip confirmation prompts for destructive
+                                  actions.
+  --profile [full|chat|readonly|moderation]
+                                  Override permission profile for this
+                                  invocation.
+  --help                          Show this message and exit.
+
+Commands:
+  audit       View the audit log.
+  channel     Manage channels.
+  config      Manage discli configuration.
+  dm          Send and read direct messages.
+  listen      Listen to real-time Discord events.
+  member      Manage server members.
+  message     Send, read, and manage messages.
+  permission  Manage permission profiles for command access control.
+  poll        Create and manage polls.
+  reaction    Manage message reactions.
+  role        Manage server roles.
+  serve       Start a persistent agent session (JSONL protocol).
+  server      List and inspect servers.
+  thread      Manage threads.
+  typing      Show typing indicator in a channel.
+```
+
+<Callout type="danger">
+  If you see `command not found: discli`, make sure the Python scripts directory is on your `PATH`. For pip installs, this is typically `~/.local/bin` on Linux/macOS or `%APPDATA%\Python\Scripts` on Windows.
+</Callout>
+
+## Upgrading
+
+To upgrade to the latest version:
+
+```bash
+pip install --upgrade discord-cli-agent
+```
+
+## Uninstalling
+
+```bash
+pip uninstall discord-cli-agent
+```
+
+This removes the `discli` command but leaves your configuration at `~/.discli/` intact. Delete that directory manually if you want a clean removal.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" href="/getting-started/quickstart">
+    Send your first Discord message in 2 minutes.
+  </Card>
+  <Card title="Configuration" href="/getting-started/configuration">
+    Set up your bot token and permission profiles.
+  </Card>
+</CardGroup>

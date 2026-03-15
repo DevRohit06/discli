@@ -1,0 +1,418 @@
+---
+title: CLI Usage
+description: Day-to-day Discord operations from your terminal
+---
+
+discli gives you full Discord control from the command line. Every command works in two modes: human-readable output by default, and structured JSON with `--json` for scripting and piping.
+
+## Identifier Resolution
+
+Before diving into commands, understand how discli resolves Discord entities:
+
+| Prefix | Resolves to | Example |
+|--------|------------|---------|
+| `#` | Channel by name | `#general` |
+| `@` | User by name | `@alice` |
+| Raw number | Any entity by ID | `1234567890` |
+| Plain string | Server by name | `"My Server"` |
+
+<Callout type="tip">
+Channel names with `#` and user names with `@` are matched case-insensitively across all servers your bot can see. When names collide, use the numeric ID instead.
+</Callout>
+
+## Sending Messages
+
+The most common operation. Send a message to any channel your bot has access to:
+
+<CodeGroup>
+
+```bash By channel name
+discli message send "#general" "Hello from the terminal!"
+```
+
+```bash By channel ID
+discli message send 1234567890 "Deploy complete. All systems green."
+```
+
+```bash With file attachment
+discli message send "#logs" "Here's today's report" --file ./report.csv
+```
+
+```bash With embed
+discli message send "#announcements" "New release!" \
+  --embed-title "v2.1.0" \
+  --embed-desc "Bug fixes and performance improvements"
+```
+
+</CodeGroup>
+
+## Reading Messages
+
+Fetch recent messages, search by content, or grab a specific message by ID.
+
+<Tabs>
+<Tab title="List recent">
+```bash
+# Last 10 messages (default)
+discli message list "#general"
+
+# Last 50 messages
+discli message list "#general" --limit 50
+
+# Messages before a specific date
+discli message list "#general" --before 2025-01-15
+
+# Messages after a specific date
+discli message list "#general" --after 2025-01-01
+```
+</Tab>
+
+<Tab title="Search">
+```bash
+# Search by content
+discli message search "#support" "payment failed"
+
+# Search by content + author
+discli message search "#support" "refund" --author "alice#1234"
+
+# Search with date range
+discli message search "#general" "deploy" --after 2025-03-01 --limit 200
+```
+</Tab>
+
+<Tab title="Fetch one">
+```bash
+# Get a specific message by ID
+discli message get "#general" 1234567890123456
+```
+</Tab>
+
+<Tab title="Deep history">
+```bash
+# Last 7 days of messages
+discli message history "#general" --days 7
+
+# Last 2 hours
+discli message history "#general" --hours 2
+
+# Last 7 days, max 500 messages
+discli message history "#general" --days 7 --limit 500
+```
+</Tab>
+</Tabs>
+
+## JSON Output and jq Piping
+
+Add `--json` to any command to get structured JSON output. This is where discli becomes a scripting powerhouse.
+
+```bash
+# Get JSON output
+discli --json message list "#general" --limit 5
+```
+
+```json
+[
+  {
+    "id": "1234567890",
+    "author": "alice#1234",
+    "content": "Hello everyone!",
+    "timestamp": "2025-03-15T10:30:00",
+    "attachments": [],
+    "embeds": []
+  }
+]
+```
+
+Pipe to `jq` for filtering and transformation:
+
+<CodeGroup>
+
+```bash Extract just message content
+discli --json message list "#general" --limit 20 | jq '.[].content'
+```
+
+```bash Find messages with attachments
+discli --json message list "#general" --limit 100 \
+  | jq '[.[] | select(.attachments | length > 0)]'
+```
+
+```bash Get unique authors
+discli --json message list "#general" --limit 100 \
+  | jq '[.[].author] | unique'
+```
+
+```bash Count messages per author
+discli --json message list "#general" --limit 100 \
+  | jq 'group_by(.author) | map({author: .[0].author, count: length}) | sort_by(-.count)'
+```
+
+```bash Export to CSV
+discli --json message list "#general" --limit 100 \
+  | jq -r '.[] | [.timestamp, .author, .content] | @csv' > messages.csv
+```
+
+</CodeGroup>
+
+## Replying and Editing
+
+```bash
+# Reply to a specific message
+discli message reply "#general" 1234567890123456 "Thanks for the update!"
+
+# Edit a message (must be your bot's message)
+discli message edit "#general" 1234567890123456 "Updated content here"
+
+# Delete a message (requires confirmation)
+discli message delete "#general" 1234567890123456
+```
+
+<Callout type="warning">
+Destructive commands like `message delete` prompt for confirmation. Pass `--yes` or `-y` to skip the prompt in scripts: `discli --yes message delete "#general" 1234567890`.
+</Callout>
+
+## Channel Management
+
+<Tabs>
+<Tab title="List channels">
+```bash
+# All channels across all servers
+discli channel list
+
+# Channels in a specific server
+discli channel list --server "My Server"
+
+# JSON output for scripting
+discli --json channel list --server "My Server" | jq '.[] | select(.type == "text")'
+```
+</Tab>
+
+<Tab title="Create channels">
+```bash
+# Create a text channel
+discli channel create "My Server" "new-channel"
+
+# Create a voice channel
+discli channel create "My Server" "voice-room" --type voice
+
+# Create a category
+discli channel create "My Server" "Project Alpha" --type category
+```
+</Tab>
+
+<Tab title="Channel info">
+```bash
+# Get channel details
+discli channel info "#general"
+
+# JSON output
+discli --json channel info "#general"
+```
+
+Output includes: ID, name, type, server, topic, and creation date.
+</Tab>
+
+<Tab title="Delete channels">
+```bash
+# Delete a channel (requires confirmation)
+discli channel delete "#old-channel"
+
+# Skip confirmation
+discli --yes channel delete "#old-channel"
+```
+</Tab>
+</Tabs>
+
+## Member Operations
+
+```bash
+# List members in a server
+discli member list "My Server"
+discli member list "My Server" --limit 100
+
+# Get member details (roles, join date, etc.)
+discli member info "My Server" "@alice"
+discli member info "My Server" 1234567890
+
+# Kick a member (confirmation required)
+discli member kick "My Server" "@spammer" --reason "Spam"
+
+# Ban a member
+discli member ban "My Server" "@troll" --reason "Repeated violations"
+
+# Unban
+discli member unban "My Server" "@reformed"
+```
+
+### The `--triggered-by` Flag
+
+When your bot acts on behalf of a Discord user, pass their ID to verify they have the required Discord permissions:
+
+```bash
+discli member kick "My Server" "@spammer" \
+  --reason "Spam" \
+  --triggered-by 9876543210
+```
+
+This checks that user `9876543210` has `kick_members` permission in the server before executing. The check is logged to the audit trail.
+
+## Reactions
+
+```bash
+# Add a reaction
+discli reaction add "#general" 1234567890123456 "👍"
+
+# Remove your bot's reaction
+discli reaction remove "#general" 1234567890123456 "👍"
+
+# List reactions on a message
+discli reaction list "#general" 1234567890123456
+```
+
+<Callout type="note">
+Unicode emoji work directly. For custom server emoji, use the format `<:name:id>` or just the emoji name if your bot is in the server.
+</Callout>
+
+## Direct Messages
+
+```bash
+# Send a DM to a user
+discli dm send "@alice" "Your report is ready!"
+discli dm send 1234567890 "Your report is ready!"
+
+# List recent DMs with a user
+discli dm list "@alice"
+discli dm list "@alice" --limit 20
+```
+
+## Threads
+
+```bash
+# Create a thread from a message
+discli thread create "#general" 1234567890123456 "Discussion Thread"
+
+# List active threads in a channel
+discli thread list "#general"
+
+# Send a message to a thread
+discli thread send 9876543210 "Replying in the thread"
+
+# Send with file attachment
+discli thread send 9876543210 "Here's the file" --file ./data.json
+```
+
+## Roles
+
+```bash
+# List roles in a server
+discli role list "My Server"
+
+# Create a role
+discli role create "My Server" "Contributor" --color "00ff00"
+
+# Assign a role to a member
+discli role assign "My Server" "@alice" "Contributor"
+
+# Remove a role
+discli role remove "My Server" "@alice" "Contributor"
+
+# Delete a role (confirmation required)
+discli role delete "My Server" "OldRole"
+```
+
+## Server Operations
+
+```bash
+# List all servers your bot is in
+discli server list
+
+# Get server details
+discli server info "My Server"
+
+# JSON for scripting
+discli --json server list | jq '.[] | {name, member_count}'
+```
+
+## Polls
+
+```bash
+# Create a poll (via serve mode action)
+# See the Serve Mode guide for poll_send details
+```
+
+## Permission Profiles
+
+Control what commands your bot can execute:
+
+```bash
+# Show current profile
+discli permission show
+
+# List available profiles
+discli permission profiles
+
+# Switch to a restricted profile
+discli permission set readonly
+
+# Override per-invocation
+discli --profile chat message send "#general" "Hello"
+```
+
+See the [Security & Permissions](/guides/security-permissions) guide for full details.
+
+## Audit Log
+
+Review what destructive actions have been taken:
+
+```bash
+# Show recent audit entries
+discli audit show
+discli audit show --limit 50
+
+# JSON output
+discli --json audit show --limit 10
+
+# Clear the audit log
+discli audit clear
+```
+
+## Common Patterns
+
+### Quick Status Check
+
+```bash
+# How active is a channel?
+discli --json message list "#general" --limit 100 \
+  | jq 'length'
+```
+
+### Find a User's Messages
+
+```bash
+discli --json message search "#general" "" --author "alice#1234" --limit 100 \
+  | jq 'length'
+```
+
+### Broadcast to Multiple Channels
+
+```bash
+for channel in "#announcements" "#general" "#dev"; do
+  discli message send "$channel" "Server maintenance at 2 AM UTC tonight."
+done
+```
+
+### Export Channel History
+
+```bash
+discli --json message history "#general" --days 30 \
+  | jq -r '.[] | [.timestamp, .author, .content] | @csv' \
+  > general-export.csv
+```
+
+## Global Flags Reference
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--token` | | Bot token (overrides env and config) |
+| `--json` | | Output as structured JSON |
+| `--yes` | `-y` | Skip destructive action confirmations |
+| `--profile` | | Override permission profile (`full`, `chat`, `readonly`, `moderation`) |

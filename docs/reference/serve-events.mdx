@@ -1,0 +1,359 @@
+---
+title: Serve Events
+description: Complete reference for all events emitted via stdout in serve mode
+---
+
+# Serve Events
+
+When running `discli serve`, events are emitted as JSONL (one JSON object per line) on stdout. Every event includes an `"event"` field identifying the event type.
+
+---
+
+## ready
+
+Emitted once when the bot connects to the Discord gateway. This fires before slash commands are synced.
+
+```json
+{
+  "event": "ready",
+  "bot_id": "123456789",
+  "bot_name": "MyBot#1234"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `bot_id` | string | Bot's user snowflake ID |
+| `bot_name` | string | Bot's username and discriminator |
+
+---
+
+## slash_commands_synced
+
+Emitted after slash commands have been registered with Discord (only if `--slash-commands` was provided).
+
+```json
+{
+  "event": "slash_commands_synced",
+  "count": 3,
+  "guilds": 2
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `count` | integer | Number of slash commands registered |
+| `guilds` | integer | Number of guilds commands were synced to |
+
+---
+
+## message
+
+Emitted when a message is sent in a visible channel. Bot messages from other bots are excluded; the bot's own messages are included by default (controlled by `--include-self` / `--no-include-self`).
+
+```json
+{
+  "event": "message",
+  "server": "My Server",
+  "server_id": "123456",
+  "channel": "general",
+  "channel_id": "789012",
+  "author": "alice",
+  "author_id": "111222",
+  "is_bot": false,
+  "content": "Hello everyone!",
+  "timestamp": "2024-01-15T12:30:00+00:00",
+  "message_id": "333444",
+  "mentions_bot": false,
+  "is_dm": false,
+  "attachments": [],
+  "reply_to": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `server` | string \| null | Server name, or `null` for DMs |
+| `server_id` | string \| null | Server snowflake ID, or `null` for DMs |
+| `channel` | string | Channel name, or `"DM"` for direct messages |
+| `channel_id` | string | Channel snowflake ID |
+| `author` | string | Message author's username |
+| `author_id` | string | Author's user snowflake ID |
+| `is_bot` | boolean | Whether the author is a bot |
+| `content` | string | Message text content |
+| `timestamp` | string | ISO 8601 timestamp |
+| `message_id` | string | Message snowflake ID |
+| `mentions_bot` | boolean | Whether the message @-mentions the bot |
+| `is_dm` | boolean | Whether this is a direct message |
+| `attachments` | array | List of `{"filename", "url", "size"}` objects |
+| `reply_to` | string \| null | Message ID this is a reply to, or `null` |
+
+---
+
+## slash_command
+
+Emitted when a user invokes a registered slash command. The interaction is automatically deferred (shows "thinking..."). You must respond using `interaction_followup` or `stream_start` with the `interaction_token`.
+
+```json
+{
+  "event": "slash_command",
+  "command": "ask",
+  "args": {"question": "What is discli?"},
+  "channel_id": "789012",
+  "user": "alice",
+  "user_id": "111222",
+  "guild_id": "123456",
+  "interaction_token": "uuid-string",
+  "is_admin": false
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `command` | string | Slash command name |
+| `args` | object | Key-value map of command arguments (all values are strings) |
+| `channel_id` | string | Channel where the command was invoked |
+| `user` | string | Username of the invoking user |
+| `user_id` | string | User snowflake ID |
+| `guild_id` | string \| null | Server ID, or `null` for DM slash commands |
+| `interaction_token` | string | Token for responding via `interaction_followup` or `stream_start` |
+| `is_admin` | boolean | Whether the user has administrator permission in the guild |
+
+---
+
+## message_edit
+
+Emitted when a non-bot user edits a message.
+
+```json
+{
+  "event": "message_edit",
+  "server": "My Server",
+  "server_id": "123456",
+  "channel": "general",
+  "channel_id": "789012",
+  "author": "alice",
+  "author_id": "111222",
+  "message_id": "333444",
+  "old_content": "Hello",
+  "new_content": "Hello everyone!",
+  "timestamp": "2024-01-15T12:35:00+00:00"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `server` | string \| null | Server name |
+| `server_id` | string \| null | Server snowflake ID |
+| `channel` | string | Channel name |
+| `channel_id` | string | Channel snowflake ID |
+| `author` | string | Author username |
+| `author_id` | string | Author user snowflake ID |
+| `message_id` | string | Edited message snowflake ID |
+| `old_content` | string \| null | Previous message content (may be null if uncached) |
+| `new_content` | string | New message content |
+| `timestamp` | string | ISO 8601 timestamp of the edit |
+
+---
+
+## message_delete
+
+Emitted when a message is deleted.
+
+```json
+{
+  "event": "message_delete",
+  "server": "My Server",
+  "server_id": "123456",
+  "channel": "general",
+  "channel_id": "789012",
+  "author": "alice",
+  "author_id": "111222",
+  "message_id": "333444",
+  "content": "Hello everyone!"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `server` | string \| null | Server name |
+| `server_id` | string \| null | Server snowflake ID |
+| `channel` | string | Channel name |
+| `channel_id` | string | Channel snowflake ID |
+| `author` | string \| null | Author username (null if uncached) |
+| `author_id` | string \| null | Author user snowflake ID (null if uncached) |
+| `message_id` | string | Deleted message snowflake ID |
+| `content` | string \| null | Message content (null if uncached) |
+
+---
+
+## reaction_add
+
+Emitted when a user adds a reaction to a message.
+
+```json
+{
+  "event": "reaction_add",
+  "server": "My Server",
+  "channel": "general",
+  "channel_id": "789012",
+  "message_id": "333444",
+  "emoji": "thumbsup",
+  "user": "alice",
+  "user_id": "111222"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `server` | string \| null | Server name |
+| `channel` | string | Channel name |
+| `channel_id` | string | Channel snowflake ID |
+| `message_id` | string | Message snowflake ID |
+| `emoji` | string | Emoji name or unicode character |
+| `user` | string | Username of the user who reacted |
+| `user_id` | string | User snowflake ID |
+
+---
+
+## reaction_remove
+
+Emitted when a user removes a reaction from a message.
+
+```json
+{
+  "event": "reaction_remove",
+  "server": "My Server",
+  "channel": "general",
+  "channel_id": "789012",
+  "message_id": "333444",
+  "emoji": "thumbsup",
+  "user": "alice",
+  "user_id": "111222"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `server` | string \| null | Server name |
+| `channel` | string | Channel name |
+| `channel_id` | string | Channel snowflake ID |
+| `message_id` | string | Message snowflake ID |
+| `emoji` | string | Emoji name or unicode character |
+| `user` | string | Username of the user |
+| `user_id` | string | User snowflake ID |
+
+---
+
+## member_join
+
+Emitted when a new member joins a server.
+
+```json
+{
+  "event": "member_join",
+  "server": "My Server",
+  "server_id": "123456",
+  "member": "alice",
+  "member_id": "111222"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `server` | string | Server name |
+| `server_id` | string | Server snowflake ID |
+| `member` | string | New member's username |
+| `member_id` | string | Member's user snowflake ID |
+
+---
+
+## member_remove
+
+Emitted when a member leaves or is removed from a server.
+
+```json
+{
+  "event": "member_remove",
+  "server": "My Server",
+  "server_id": "123456",
+  "member": "alice",
+  "member_id": "111222"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `server` | string | Server name |
+| `server_id` | string | Server snowflake ID |
+| `member` | string | Member's username |
+| `member_id` | string | Member's user snowflake ID |
+
+---
+
+## response
+
+Emitted as the reply to every stdin action. Contains `"ok": true` on success or an `"error"` string on failure. If the original action included a `req_id`, it is echoed back.
+
+```json
+{"event": "response", "ok": true, "message_id": "789", "req_id": "1"}
+```
+
+```json
+{"event": "response", "error": "Channel not found: 999", "req_id": "2"}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ok` | boolean | Present and `true` on success |
+| `error` | string | Present on failure with an error description |
+| `req_id` | string | Echoed from the original action, if provided |
+| _(varies)_ | | Additional fields depend on the action (see [Serve Actions](/reference/serve-actions)) |
+
+---
+
+## error
+
+Emitted when an internal error occurs (e.g., invalid JSON on stdin, slash command sync failure).
+
+```json
+{"event": "error", "message": "Invalid JSON: {bad input"}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message` | string | Error description |
+
+---
+
+## shutdown
+
+Emitted when the bot process is shutting down (e.g., Ctrl+C).
+
+```json
+{"event": "shutdown"}
+```
+
+No additional fields.
+
+---
+
+## Event Filtering
+
+Use the `--events` option to limit which events are emitted. Pass a comma-separated list of event categories:
+
+| Category | Events included |
+|----------|-----------------|
+| `messages` | `message` |
+| `edits` | `message_edit` |
+| `deletes` | `message_delete` |
+| `reactions` | `reaction_add`, `reaction_remove` |
+| `members` | `member_join`, `member_remove` |
+
+The `ready`, `slash_command`, `slash_commands_synced`, `response`, `error`, and `shutdown` events are always emitted regardless of the filter.
+
+Example:
+
+```
+discli serve --events messages,reactions
+```

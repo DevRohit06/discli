@@ -1,0 +1,85 @@
+---
+title: discli vs CLI Tools
+description: How discli compares to discrawl and other Discord CLI tools
+---
+
+# discli vs CLI Tools
+
+Several command-line tools exist for Discord. Most were built for a single purpose — scraping, chatting as a user, or modifying the client. discli is the only one designed as a full bidirectional bot interface with an agent protocol.
+
+## discrawl
+
+**discrawl** is a Discord scraper and crawler. It connects to Discord, reads messages, and exports them to files or databases.
+
+**Strengths:**
+- Excellent at bulk data export (CSV, JSON, SQLite)
+- Handles pagination and rate limiting for large history pulls
+- Simple CLI for one-off scrapes
+
+**Limitations:**
+- Read-only — cannot send messages, react, create channels, or perform any write operation
+- No real-time event stream — runs as a batch job, not a live listener
+- No agent protocol — no way to feed events to an AI model and act on them
+- No security model — no permission profiles or audit logging
+
+discli reads **and** writes. It streams events in real time, accepts actions via JSONL, and wraps everything in a security layer. If you need to export old messages and nothing else, discrawl is a solid choice. For anything interactive, discli is the tool.
+
+## discord-cli / cordless
+
+**discord-cli** and **cordless** are terminal-based Discord clients. They let humans chat on Discord from a terminal UI, similar to how IRC clients work.
+
+<Callout type="danger">
+These tools use **user account tokens** (self-botting), which violates Discord's Terms of Service. Your account can be permanently banned. discli uses official bot tokens exclusively.
+</Callout>
+
+**Limitations:**
+- Self-bot risk — against Discord TOS
+- Not designed for bots — no bot token support, no slash commands, no gateway intents
+- Unmaintained — most have not been updated in years
+- No programmatic interface — designed for human keyboard interaction, not automation
+
+## BetterDiscord
+
+**BetterDiscord** is a client-side modification for the Discord desktop app. It adds themes, plugins, and custom CSS to the Discord UI.
+
+This is an entirely different category. BetterDiscord modifies what **you** see in Discord. discli controls what **a bot** does on Discord. There is no overlap in functionality:
+
+- BetterDiscord: client-side, visual, user-facing
+- discli: server-side, programmatic, bot-facing
+
+## Comparison table
+
+| Feature | discli | discrawl | discord-cli / cordless | BetterDiscord |
+|---|---|---|---|---|
+| **Read messages** | Yes | Yes | Yes | N/A (client mod) |
+| **Write messages** | Yes | No | Yes (self-bot) | N/A |
+| **Real-time events** | Yes (JSONL stream) | No (batch only) | Yes (TUI) | N/A |
+| **Agent protocol** | Yes (bidirectional JSONL) | No | No | No |
+| **Security model** | Permission profiles, audit log, rate limits | None | None | None |
+| **Bot token support** | Yes (official API) | Yes | No (user tokens) | N/A |
+| **Actively maintained** | Yes | Varies | No | Community-driven |
+| **TOS compliant** | Yes | Yes | No (self-bot risk) | Gray area |
+
+## When to use what
+
+<Tabs>
+<Tab title="Use discli when">
+- You need to **read and write** from a bot account
+- You want **real-time events** streamed as JSONL
+- You are building an **AI agent** that interacts with Discord
+- You need **security guardrails** (permission profiles, audit logs)
+- You want a **maintained, TOS-compliant** tool
+</Tab>
+
+<Tab title="Use discrawl when">
+- You only need to **export message history** in bulk
+- You want data in CSV, JSON, or SQLite format
+- You do not need real-time events or write operations
+</Tab>
+
+<Tab title="Avoid discord-cli / cordless">
+- Self-botting risks account termination
+- These projects are unmaintained
+- If you want a terminal Discord experience, consider running discli with `discli listen` for read and `discli message send` for write — same terminal workflow, zero TOS risk
+</Tab>
+</Tabs>

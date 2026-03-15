@@ -1,0 +1,182 @@
+---
+title: Windows Quirks
+description: Windows-specific issues and workarounds
+---
+
+# Windows Quirks
+
+discli works on Windows, but there are a few platform-specific behaviors to be aware of. This page documents them and their workarounds.
+
+## stdin in serve mode
+
+**Issue:** Python's `asyncio` does not support reading from stdin on Windows the way it does on Unix. discli works around this by using an internal threading-based stdin reader.
+
+This is transparent in normal use — you write JSONL to stdin and discli processes it. However, there are two edge cases:
+
+- **Ctrl+C may not terminate cleanly.** The stdin reader thread can keep the process alive after a keyboard interrupt.
+- **Subprocess cleanup** needs explicit handling in your agent code.
+
+**Fix:** When controlling `discli serve` from another program, use `proc.terminate()` instead of relying on Ctrl+C:
+
+```python
+import subprocess, signal
+
+proc = subprocess.Popen(
+    ["discli", "serve", "--events", "messages"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    text=True,
+)
+
+try:
+    for line in proc.stdout:
+        # process events...
+        pass
+except KeyboardInterrupt:
+    proc.terminate()  # Clean shutdown on Windows
+    proc.wait(timeout=5)
+```
+
+<Callout type="note">
+On Unix, Ctrl+C sends SIGINT which discli handles gracefully. On Windows, there is no SIGINT for child processes — `proc.terminate()` is the reliable shutdown method.
+</Callout>
+
+## Path separators
+
+**Issue:** Windows uses backslashes (`\`) in file paths. discli normalizes paths internally, but you may see backslashes in error messages or config output.
+
+**Fix:** Use forward slashes everywhere. They work in both PowerShell and cmd.exe:
+
+```bash
+# Both work on Windows
+discli message send "#logs" "report" --file C:/Users/you/report.csv
+discli message send "#logs" "report" --file C:\Users\you\report.csv
+```
+
+The config file lives at `%USERPROFILE%\.discli\config.json` (or `~/.discli/config.json` with forward slashes).
+
+## PowerShell vs cmd.exe quoting
+
+String quoting behaves differently between PowerShell and cmd.exe. Here are the correct forms for each:
+
+<Tabs>
+<Tab title="PowerShell">
+```powershell
+# Single quotes work for simple strings
+discli message send '#general' 'Hello from PowerShell!'
+
+# Double quotes for variable interpolation
+$channel = "#general"
+discli message send $channel "Deploy complete at $(Get-Date)"
+
+# Escape double quotes inside double-quoted strings
+discli message send '#general' "He said `"hello`""
+
+# JSON output piped to ConvertFrom-Json
+discli --json message list '#general' --limit 5 | ConvertFrom-Json
+```
+</Tab>
+
+<Tab title="cmd.exe">
+```batch
+:: Double quotes only in cmd.exe
+discli message send "#general" "Hello from cmd!"
+
+:: Escape inner quotes with backslash
+discli message send "#general" "He said \"hello\""
+
+:: JSON output piped to a file
+discli --json message list "#general" --limit 5 > messages.json
+```
+</Tab>
+
+<Tab title="Git Bash / WSL">
+```bash
+# Standard Unix quoting — works as expected
+discli message send '#general' 'Hello from bash!'
+discli message send "#general" "Hello from bash!"
+
+# Pipe to jq
+discli --json message list '#general' --limit 5 | jq '.[0].content'
+```
+</Tab>
+</Tabs>
+
+<Callout type="tip">
+If you are on Windows and have a choice of shell, Git Bash or WSL give you the most consistent experience with discli. The examples throughout the documentation use Unix shell syntax.
+</Callout>
+
+## Unicode and emoji in cmd.exe
+
+**Issue:** The default cmd.exe code page (437) cannot display Unicode characters including emoji. You will see garbled output or question marks.
+
+**Fix:** Switch to UTF-8 before running discli:
+
+```batch
+chcp 65001
+discli message list "#general" --limit 5
+```
+
+To make this permanent, you can set the default code page in the Windows Registry or use Windows Terminal, which defaults to UTF-8.
+
+<Callout type="note">
+PowerShell and Windows Terminal handle UTF-8 correctly out of the box. This issue only affects the classic cmd.exe console.
+</Callout>
+
+## pip not on PATH
+
+**Issue:** After installing Python from python.org, `pip` and `discli` may not be on your PATH. You get `'pip' is not recognized` or `'discli' is not recognized`.
+
+**Fix:**
+
+```batch
+:: Use python -m pip instead
+python -m pip install discord-cli-agent
+
+:: Find where scripts are installed
+python -m site --user-site
+
+:: Or use py launcher (installed with Python on Windows)
+py -m pip install discord-cli-agent
+```
+
+After installing, the `discli` executable is placed in Python's Scripts directory. Add it to your PATH:
+
+```powershell
+# PowerShell — find the path
+python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+
+# Add it permanently (PowerShell, run as admin)
+$scriptsPath = python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$scriptsPath", "User")
+```
+
+## Long path support
+
+**Issue:** Windows has a default path length limit of 260 characters. If your username is long or discli's config directory is deeply nested, you may see file access errors.
+
+**Fix:** Enable long path support in Windows 10/11:
+
+<Steps>
+<Step title="Open Group Policy Editor">
+Press `Win+R`, type `gpedit.msc`, press Enter.
+</Step>
+<Step title="Navigate to the setting">
+Go to **Computer Configuration** > **Administrative Templates** > **System** > **Filesystem**.
+</Step>
+<Step title="Enable long paths">
+Double-click **Enable Win32 long paths**, set it to **Enabled**, click OK.
+</Step>
+</Steps>
+
+Alternatively, set the registry key directly:
+
+```powershell
+# PowerShell (run as admin)
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+  -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+```
+
+<Callout type="note">
+This issue is rare in practice. It only comes up when the full path to discli's config file exceeds 260 characters, which typically requires a very long Windows username or deeply nested install directory.
+</Callout>

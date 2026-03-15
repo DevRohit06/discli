@@ -1,0 +1,272 @@
+---
+title: Your First Bot
+description: Build a working Discord bot agent from scratch
+---
+
+# Your First Bot
+
+This guide walks you through creating a Discord application, inviting your bot to a server, and building a working agent that echoes messages — all from scratch. By the end, you will have a Python script that listens for Discord messages and replies automatically using `discli serve`.
+
+## Prerequisites
+
+- [discli installed](/getting-started/installation)
+- A Discord account
+- A Discord server where you have admin permissions (create a test server if needed)
+
+## Set up your Discord bot
+
+<Steps>
+  <Step title="Create a Discord Application">
+    Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**.
+
+    Give it a name (e.g., "My discli Bot") and click **Create**.
+
+    You will land on the application's General Information page.
+  </Step>
+
+  <Step title="Create the Bot and copy your token">
+    In the left sidebar, click **Bot**.
+
+    Click **Reset Token** (or **Add Bot** if prompted) to generate a bot token. Copy this token immediately — you will not be able to see it again.
+
+    <Callout type="danger">
+      **Never share your bot token.** Anyone with the token has full control of your bot. If you accidentally expose it, reset it immediately in the Developer Portal.
+    </Callout>
+  </Step>
+
+  <Step title="Enable the MESSAGE CONTENT intent">
+    On the same **Bot** settings page, scroll down to **Privileged Gateway Intents**.
+
+    Enable **MESSAGE CONTENT INTENT**. This allows your bot to read the contents of messages sent in servers.
+
+    Click **Save Changes**.
+
+    <Callout type="warning">
+      Without the MESSAGE CONTENT intent, your bot will receive message events but the `content` field will be empty. This is the most common reason a new bot appears to "not respond" to messages.
+    </Callout>
+  </Step>
+
+  <Step title="Invite the bot to your server">
+    In the left sidebar, click **OAuth2**.
+
+    Under **OAuth2 URL Generator**:
+
+    1. In **Scopes**, check **bot**
+    2. In **Bot Permissions**, check:
+       - **Send Messages**
+       - **Read Message History**
+       - **View Channels**
+
+    Copy the generated URL at the bottom of the page and open it in your browser. Select your test server and click **Authorize**.
+
+    <Callout type="tip">
+      For a full-featured agent, you may want to add more permissions later (Manage Messages, Add Reactions, Create Public Threads, etc.). Start minimal and add permissions as you need them.
+    </Callout>
+  </Step>
+
+  <Step title="Configure discli with your token">
+    Back in your terminal, save the bot token:
+
+    ```bash
+    discli config set token YOUR_BOT_TOKEN
+    ```
+
+    ```
+    Set token.
+    ```
+
+    Replace `YOUR_BOT_TOKEN` with the actual token you copied in Step 2.
+  </Step>
+
+  <Step title="Test the connection">
+    Verify that discli can connect to Discord with your token:
+
+    ```bash
+    discli server list
+    ```
+
+    ```
+    My Test Server (ID: 1234567890123456789) — 5 members
+    ```
+
+    You should see the server you just invited the bot to. If you see an error, double-check that your token is correct with `discli config show`.
+  </Step>
+</Steps>
+
+## Build your first agent
+
+Now for the exciting part — building a bot that listens for messages and replies to them. This uses `discli serve`, which opens a persistent JSONL (JSON Lines) session over stdin/stdout.
+
+<Steps>
+  <Step title="Create the agent script">
+    Create a file called `my_bot.py` with the following code:
+
+    ```python
+    import json
+    import subprocess
+
+    # Start discli in serve mode with JSON output
+    proc = subprocess.Popen(
+        ["discli", "--json", "serve"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+
+    # Read events from stdout, one JSON object per line
+    for line in proc.stdout:
+        event = json.loads(line)
+
+        # Only respond to non-bot messages
+        if event.get("event") == "message" and not event.get("is_bot"):
+            # Build a reply action
+            cmd = json.dumps({
+                "action": "reply",
+                "channel_id": event["channel_id"],
+                "message_id": event["message_id"],
+                "content": f"You said: {event['content']}",
+            })
+
+            # Send the action to discli via stdin
+            proc.stdin.write(cmd + "\n")
+            proc.stdin.flush()
+    ```
+
+    That is 15 lines of logic — no Discord library boilerplate, no event loop setup, no gateway connection management. discli handles all of that.
+  </Step>
+
+  <Step title="Run the agent">
+    ```bash
+    python my_bot.py
+    ```
+
+    The process starts and waits for Discord events. You will not see any output yet — that is expected.
+  </Step>
+
+  <Step title="Test it">
+    Go to your Discord server and send a message in any channel the bot can see:
+
+    ```
+    You: Hello bot!
+    My discli Bot: You said: Hello bot!
+    ```
+
+    The bot should reply within a second. Send a few more messages to confirm it is working.
+
+    Press `Ctrl+C` in your terminal to stop the agent.
+  </Step>
+</Steps>
+
+## How the code works
+
+Let's break down each part of the agent:
+
+### Starting the serve process
+
+```python
+proc = subprocess.Popen(
+    ["discli", "--json", "serve"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    text=True,
+)
+```
+
+This launches `discli serve` as a subprocess. The `--json` flag tells discli to output events as JSON. The `stdin` and `stdout` pipes create a bidirectional communication channel:
+
+- **stdout** — discli sends events (messages, reactions, member joins, etc.) as JSON lines
+- **stdin** — your agent sends actions (send message, reply, react, etc.) as JSON lines
+
+### Reading events
+
+```python
+for line in proc.stdout:
+    event = json.loads(line)
+```
+
+Each line from stdout is a complete JSON object representing a Discord event. The `event` field tells you what happened. A message event looks like:
+
+```json
+{
+  "event": "message",
+  "channel_id": "1111111111111111111",
+  "message_id": "2222222222222222222",
+  "author": "Alice",
+  "author_id": "3333333333333333333",
+  "content": "Hello bot!",
+  "is_bot": false,
+  "guild_id": "4444444444444444444"
+}
+```
+
+### Filtering events
+
+```python
+if event.get("event") == "message" and not event.get("is_bot"):
+```
+
+This checks two things:
+1. The event is a message (not a reaction, member join, etc.)
+2. The message was not sent by a bot (prevents the bot from replying to itself in an infinite loop)
+
+### Sending actions
+
+```python
+cmd = json.dumps({
+    "action": "reply",
+    "channel_id": event["channel_id"],
+    "message_id": event["message_id"],
+    "content": f"You said: {event['content']}",
+})
+proc.stdin.write(cmd + "\n")
+proc.stdin.flush()
+```
+
+To make the bot do something, write a JSON action to stdin. The `reply` action sends a reply to a specific message. Other actions include `send` (send a new message), `react` (add a reaction), `thread_create` (create a thread), and [many more](/reference/serve-actions).
+
+The `flush()` call is important — without it, Python may buffer the write and the action will not reach discli immediately.
+
+## Troubleshooting
+
+<Callout type="warning">
+  **Bot does not respond to messages?** Check these common issues:
+
+  1. **MESSAGE CONTENT intent not enabled.** Go to the Developer Portal, Bot settings, and make sure the MESSAGE CONTENT intent toggle is on. Without it, `event['content']` will be an empty string.
+
+  2. **Bot is not in the channel.** Make sure the bot has "View Channel" permission for the channel you are testing in.
+
+  3. **Token is wrong or expired.** Run `discli server list` to verify the token works. If it fails, reset the token in the Developer Portal and run `discli config set token NEW_TOKEN`.
+
+  4. **Firewall or network issues.** `discli serve` needs an outbound WebSocket connection to Discord. Make sure your network allows this.
+</Callout>
+
+<Callout type="note">
+  **On Windows:** If stdin appears to hang, this is a known issue with Python's `subprocess` on Windows. discli handles this internally with a threaded stdin reader. Make sure you are using discli v0.5.0 or later (`pip install --upgrade discord-cli-agent`).
+</Callout>
+
+## Extending your agent
+
+Here are some ideas to build on top of this foundation:
+
+- **Add an AI model.** Instead of echoing, send the message content to an LLM (Claude, GPT, etc.) and reply with the AI's response.
+- **Read conversation history.** Use the `message_list` action to fetch previous messages and give your AI context.
+- **Create threads.** Use `thread_create` to start a dedicated thread for each conversation.
+- **Add slash commands.** Register custom slash commands that users can invoke with `/`.
+- **Restrict permissions.** Use `discli permission set chat` to limit what the agent can do.
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Building Agents" href="/guides/building-agents">
+    Learn the progressive autonomy pattern — from reactive bots to fully autonomous agents.
+  </Card>
+  <Card title="Serve Mode" href="/guides/serve-mode">
+    Deep dive into the JSONL protocol, all available events, and every action you can send.
+  </Card>
+  <Card title="Slash Commands" href="/guides/slash-commands">
+    Register and handle custom slash commands with deferred responses.
+  </Card>
+  <Card title="Security & Permissions" href="/guides/security-permissions">
+    Lock down your agent with permission profiles, audit logging, and rate limiting.
+  </Card>
+</CardGroup>

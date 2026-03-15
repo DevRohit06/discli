@@ -1,0 +1,370 @@
+---
+title: Slash Commands
+description: Register and handle Discord slash commands
+---
+
+Slash commands let users interact with your bot through Discord's built-in command interface. Type `/` in any channel and your bot's commands appear with descriptions, parameter hints, and auto-completion.
+
+## How It Works
+
+1. You define commands in a JSON file
+2. Pass the file to `discli serve --slash-commands commands.json`
+3. discli registers them with Discord on startup
+4. When a user invokes a command, you receive a `slash_command` event
+5. You respond using `interaction_followup`
+
+## Step 1: Define Your Commands
+
+Create a JSON file describing your slash commands:
+
+```json commands.json
+[
+  {
+    "name": "ask",
+    "description": "Ask the bot a question",
+    "params": [
+      {
+        "name": "question",
+        "type": "string",
+        "description": "Your question",
+        "required": true
+      }
+    ]
+  },
+  {
+    "name": "status",
+    "description": "Check bot status"
+  },
+  {
+    "name": "search",
+    "description": "Search recent messages",
+    "params": [
+      {
+        "name": "query",
+        "type": "string",
+        "description": "Search term",
+        "required": true
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "description": "Max results (default 10)",
+        "required": false
+      }
+    ]
+  }
+]
+```
+
+### Command Schema
+
+Each command object supports:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Command name (lowercase, no spaces, 1-32 chars) |
+| `description` | string | Yes | What the command does (1-100 chars) |
+| `params` | array | No | List of parameters |
+
+### Parameter Schema
+
+Each parameter supports:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Parameter name |
+| `type` | string | Yes | `string`, `integer`, `number`, or `boolean` |
+| `description` | string | Yes | Parameter description |
+| `required` | boolean | No | Default: `true` |
+
+## Step 2: Start Serve with Slash Commands
+
+```bash
+discli serve --slash-commands commands.json
+```
+
+On startup, discli will:
+
+1. Connect to Discord and emit the `ready` event
+2. Register your slash commands with every guild the bot is in
+3. Emit a `slash_commands_synced` event when registration is complete
+
+```json
+{"event": "ready", "bot_id": "123456", "bot_name": "MyBot#1234"}
+{"event": "slash_commands_synced", "count": 3, "guilds": 2}
+```
+
+<Callout type="note">
+discli copies commands to each guild individually for **instant availability**. Global command registration (without guild-specific sync) can take up to 1 hour to propagate across Discord. By syncing to each guild directly, your commands are available immediately after the `slash_commands_synced` event.
+</Callout>
+
+## Step 3: Handle Slash Command Events
+
+When a user invokes a slash command, you receive a `slash_command` event:
+
+```json
+{
+  "event": "slash_command",
+  "command": "ask",
+  "args": {
+    "question": "What is discli?"
+  },
+  "channel_id": "444555666",
+  "user": "alice#1234",
+  "user_id": "777888999",
+  "guild_id": "111222333",
+  "interaction_token": "abc-123-def",
+  "is_admin": false
+}
+```
+
+Key fields:
+
+| Field | Description |
+|-------|-------------|
+| `command` | The slash command name |
+| `args` | Dictionary of parameter name to value (as strings) |
+| `interaction_token` | Unique token for responding to this interaction |
+| `is_admin` | Whether the invoking user has Administrator permission |
+| `channel_id` | Channel where the command was invoked |
+| `user` / `user_id` | Who invoked it |
+
+## Step 4: Respond with interaction_followup
+
+The interaction is automatically deferred with a "thinking" indicator when the user invokes the command. Send your response using `interaction_followup`:
+
+```json
+{"action": "interaction_followup", "interaction_token": "abc-123-def", "content": "Here's your answer!"}
+```
+
+<Callout type="danger">
+**Interaction tokens expire after 15 minutes.** If you do not send a followup within 15 minutes, the interaction fails and the user sees "The application did not respond." Always respond as quickly as possible, even if just to acknowledge receipt.
+</Callout>
+
+## Full Working Example
+
+```python
+import json
+import subprocess
+import threading
+from queue import Queue
+
+
+class SlashBot:
+    def __init__(self, commands_file):
+        self.proc = subprocess.Popen(
+            ["discli", "serve", "--slash-commands", commands_file, "--events", "messages"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        self.events = Queue()
+        self.pending = {}
+        self._counter = 0
+        threading.Thread(target=self._reader, daemon=True).start()
+
+    def _reader(self):
+        for line in self.proc.stdout:
+            data = json.loads(line.strip())
+            rid = data.get("req_id")
+            if rid in self.pending:
+                self.pending[rid].put(data)
+            else:
+                self.events.put(data)
+
+    def send(self, action, wait=False):
+        self._counter += 1
+        rid = f"r{self._counter}"
+        action["req_id"] = rid
+        if wait:
+            q = Queue()
+            self.pending[rid] = q
+        self.proc.stdin.write(json.dumps(action) + "\n")
+        self.proc.stdin.flush()
+        if wait:
+            result = q.get(timeout=15)
+            del self.pending[rid]
+            return result
+        return None
+
+    def followup(self, token, content):
+        """Send a followup response to a slash command interaction."""
+        self.send({
+            "action": "interaction_followup",
+            "interaction_token": token,
+            "content": content,
+        })
+
+
+# Define command handlers
+def handle_ask(bot, event):
+    question = event["args"].get("question", "")
+    # In a real bot, you'd call an LLM here
+    answer = f"You asked: {question}\n\nThis is where an AI response would go."
+    bot.followup(event["interaction_token"], answer)
+
+
+def handle_status(bot, event):
+    servers = bot.send({"action": "server_list"}, wait=True)
+    count = len(servers.get("servers", []))
+    bot.followup(
+        event["interaction_token"],
+        f"Online and monitoring {count} server(s).",
+    )
+
+
+def handle_search(bot, event):
+    query = event["args"].get("query", "")
+    limit = int(event["args"].get("limit", "10"))
+    result = bot.send({
+        "action": "message_search",
+        "channel_id": event["channel_id"],
+        "query": query,
+        "limit": limit,
+    }, wait=True)
+
+    messages = result.get("messages", [])
+    if not messages:
+        bot.followup(event["interaction_token"], f"No messages found matching '{query}'.")
+        return
+
+    lines = [f"Found {len(messages)} result(s) for '{query}':\n"]
+    for msg in messages[:10]:
+        lines.append(f"**{msg['author']}**: {msg['content'][:100]}")
+    bot.followup(event["interaction_token"], "\n".join(lines))
+
+
+HANDLERS = {
+    "ask": handle_ask,
+    "status": handle_status,
+    "search": handle_search,
+}
+
+
+def main():
+    bot = SlashBot("commands.json")
+
+    # Wait for ready
+    while True:
+        event = bot.events.get()
+        if event.get("event") == "ready":
+            print(f"Ready as {event['bot_name']}")
+            break
+
+    # Wait for slash commands to sync
+    while True:
+        event = bot.events.get()
+        if event.get("event") == "slash_commands_synced":
+            print(f"Registered {event['count']} commands in {event['guilds']} guilds")
+            break
+        # Don't block forever if sync event doesn't come
+        if event.get("event") == "error":
+            print(f"Error: {event.get('message')}")
+            break
+
+    # Main event loop
+    while True:
+        event = bot.events.get()
+        if event.get("event") == "slash_command":
+            handler = HANDLERS.get(event["command"])
+            if handler:
+                try:
+                    handler(bot, event)
+                except Exception as e:
+                    bot.followup(
+                        event["interaction_token"],
+                        f"An error occurred: {e}",
+                    )
+            else:
+                bot.followup(
+                    event["interaction_token"],
+                    f"Unknown command: {event['command']}",
+                )
+
+
+if __name__ == "__main__":
+    main()
+```
+
+## Streaming Slash Command Responses
+
+For longer responses, you can stream the output instead of sending it all at once. Use `stream_start` with the `interaction_token`:
+
+```python
+def handle_ask_streaming(bot, event):
+    question = event["args"].get("question", "")
+
+    # Start a stream that responds to the slash command interaction
+    result = bot.send({
+        "action": "stream_start",
+        "channel_id": event["channel_id"],
+        "interaction_token": event["interaction_token"],
+    }, wait=True)
+
+    if "error" in result:
+        bot.followup(event["interaction_token"], f"Error: {result['error']}")
+        return
+
+    stream_id = result["stream_id"]
+
+    # Stream from your LLM
+    for chunk in call_llm(question):
+        bot.send({
+            "action": "stream_chunk",
+            "stream_id": stream_id,
+            "content": chunk,
+        })
+
+    bot.send({"action": "stream_end", "stream_id": stream_id})
+```
+
+See the [Streaming Responses](/guides/streaming-responses) guide for full details.
+
+## Registration Timing
+
+<Callout type="tip">
+discli syncs commands to each guild individually on startup, which means they are available immediately. If your bot joins a new guild while running, the new guild will not have the slash commands until you restart `discli serve`.
+</Callout>
+
+### When commands appear
+
+| Method | Timing |
+|--------|--------|
+| Guild-specific sync (what discli does) | Instant |
+| Global registration only | Up to 1 hour |
+
+### When commands update
+
+If you change your `commands.json`, restart `discli serve` to re-register the updated commands.
+
+## Admin-Only Commands
+
+The `slash_command` event includes an `is_admin` field. Use it to gate sensitive commands:
+
+```python
+def handle_admin_command(bot, event):
+    if not event["is_admin"]:
+        bot.followup(
+            event["interaction_token"],
+            "This command requires administrator permission.",
+        )
+        return
+    # ... proceed with admin action
+```
+
+## Parameter Type Mapping
+
+| JSON type | Python type | Discord type |
+|-----------|------------|-------------|
+| `string` | `str` | String option |
+| `integer` | `int` | Integer option |
+| `number` | `float` | Number option |
+| `boolean` | `bool` | Boolean option |
+
+Optional parameters (where `required` is `false`) will be absent from the `args` dictionary if the user does not provide them.
+
+## Next Steps
+
+- [Streaming Responses](/guides/streaming-responses) -- Stream long responses to slash commands
+- [Serve Mode](/guides/serve-mode) -- Full protocol reference
+- [Security & Permissions](/guides/security-permissions) -- Control what your agent can do
