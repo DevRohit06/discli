@@ -253,13 +253,11 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
                 itk = str(uuid.uuid4())
                 interactions[itk] = interaction
                 await interaction.response.defer(thinking=True)
-                # Extract guild permissions for the invoking user
-                is_admin = False
-                member_permissions = 0
-                if hasattr(interaction.user, "guild_permissions"):
-                    perms = interaction.user.guild_permissions
-                    is_admin = perms.administrator
-                    member_permissions = perms.value
+                # Use interaction.permissions (resolved from Discord payload)
+                # rather than guild_permissions (requires member cache)
+                perms = interaction.permissions
+                is_admin = perms.administrator
+                member_permissions = perms.value
                 emit({
                     "event": "slash_command",
                     "command": cmd_name,
