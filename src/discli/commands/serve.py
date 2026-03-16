@@ -253,10 +253,13 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
                 itk = str(uuid.uuid4())
                 interactions[itk] = interaction
                 await interaction.response.defer(thinking=True)
-                # Check if user has administrator permission in this guild
+                # Extract guild permissions for the invoking user
                 is_admin = False
+                member_permissions = 0
                 if hasattr(interaction.user, "guild_permissions"):
-                    is_admin = interaction.user.guild_permissions.administrator
+                    perms = interaction.user.guild_permissions
+                    is_admin = perms.administrator
+                    member_permissions = perms.value
                 emit({
                     "event": "slash_command",
                     "command": cmd_name,
@@ -267,6 +270,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
                     "guild_id": str(interaction.guild_id) if interaction.guild_id else None,
                     "interaction_token": itk,
                     "is_admin": is_admin,
+                    "member_permissions": member_permissions,
                 })
 
             # Build a proper signature so discord.py registers slash options
