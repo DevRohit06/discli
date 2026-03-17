@@ -11,6 +11,7 @@
   <a href="https://github.com/DevRohit06/discli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/DevRohit06/discli" alt="License"></a>
   <a href="https://github.com/DevRohit06/discli/releases"><img src="https://img.shields.io/github/v/release/DevRohit06/discli?label=Latest" alt="Release"></a>
   <a href="https://github.com/DevRohit06/discli/stargazers"><img src="https://img.shields.io/github/stars/DevRohit06/discli" alt="Stars"></a>
+  <a href="https://www.producthunt.com/products/discli/discli/launch-day?utm_source=badge"><img src="https://img.shields.io/badge/Product%20Hunt-Launch%20Day-%23DA552F?logo=producthunt&logoColor=white" alt="Product Hunt"></a>
 </p>
 
 ---

@@ -194,6 +194,24 @@
 }
 .hero .container { position: relative; z-index: 1; }
 
+.ph-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: linear-gradient(135deg, #da552f, #f56040);
+  border-radius: 100px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #fff;
+  margin-bottom: 16px;
+  transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.ph-banner:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
 .hero-badge {
   display: inline-flex;
   align-items: center;
