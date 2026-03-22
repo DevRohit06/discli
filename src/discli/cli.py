@@ -14,6 +14,8 @@ from discli.commands.poll import poll_group
 from discli.commands.thread import thread_group
 from discli.commands.typing_cmd import typing_cmd
 from discli.commands.serve import serve_cmd
+from discli.commands.webhook import webhook_group
+from discli.commands.event import event_group
 
 
 @click.group()
@@ -49,6 +51,8 @@ main.add_command(poll_group)
 main.add_command(thread_group)
 main.add_command(typing_cmd)
 main.add_command(serve_cmd)
+main.add_command(webhook_group)
+main.add_command(event_group)
 
 
 # Permission management commands
