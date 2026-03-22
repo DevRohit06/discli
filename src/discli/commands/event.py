@@ -53,12 +53,18 @@ def event_create(ctx, server, name, start_time, end_time, description, location,
     def action(client):
         async def _action(client):
             guild = resolve_guild(client, server)
-            start = datetime.fromisoformat(start_time)
+            try:
+                start = datetime.fromisoformat(start_time)
+            except ValueError:
+                raise click.ClickException(f"Invalid start time format: {start_time} (use ISO format like 2026-04-01T18:00:00)")
             kwargs = {"name": name, "start_time": start}
             if description:
                 kwargs["description"] = description
             if end_time:
-                kwargs["end_time"] = datetime.fromisoformat(end_time)
+                try:
+                    kwargs["end_time"] = datetime.fromisoformat(end_time)
+                except ValueError:
+                    raise click.ClickException(f"Invalid end time format: {end_time}")
             if location:
                 kwargs["location"] = location
                 kwargs["entity_type"] = discord.EntityType.external

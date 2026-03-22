@@ -96,7 +96,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         if "description" in embed_data:
             kwargs["description"] = embed_data["description"]
         if "color" in embed_data:
-            kwargs["color"] = discord.Color(int(str(embed_data["color"]).lstrip("#"), 16))
+            try:
+                kwargs["color"] = discord.Color(int(str(embed_data["color"]).lstrip("#"), 16))
+            except (ValueError, TypeError):
+                pass  # Skip invalid color
         if "url" in embed_data:
             kwargs["url"] = embed_data["url"]
         embed = discord.Embed(**kwargs)
@@ -137,6 +140,8 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         for row in components:
             items = row if isinstance(row, list) else [row]
             for item in items:
+                if not isinstance(item, dict) or "type" not in item:
+                    continue
                 if item["type"] == "button":
                     btn_kwargs = {
                         "label": item.get("label", ""),
@@ -326,6 +331,8 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     @client.event
     async def on_voice_state_update(member, before, after):
         if event_filter and "voice" not in event_filter:
+            return
+        if before.channel is None and after.channel is None:
             return
         event_data = {
             "event": "voice_state",
@@ -992,11 +999,13 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             if not guild:
                 continue
             for ch in guild.channels:
-                if isinstance(ch, (discord.TextChannel, discord.VoiceChannel)):
+                if isinstance(ch, (discord.TextChannel, discord.VoiceChannel, discord.ForumChannel)):
                     channels.append({
                         "id": str(ch.id),
                         "name": ch.name,
-                        "type": "text"
+                        "type": "forum"
+                        if isinstance(ch, discord.ForumChannel)
+                        else "text"
                         if isinstance(ch, discord.TextChannel)
                         else "voice",
                         "server": guild.name,
@@ -1281,10 +1290,13 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         if not obj:
             return {"error": f"Target not found: {target_id}"}
         overwrite = ch.overwrites_for(obj)
+        valid_perms = {p for p, _ in discord.Permissions()}
         for perm in cmd.get("allow", []):
-            setattr(overwrite, perm, True)
+            if perm in valid_perms:
+                setattr(overwrite, perm, True)
         for perm in cmd.get("deny", []):
-            setattr(overwrite, perm, False)
+            if perm in valid_perms:
+                setattr(overwrite, perm, False)
         await ch.set_permissions(obj, overwrite=overwrite)
         return {"ok": True}
 
@@ -1359,6 +1371,8 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         member = guild.get_member(int(member_id))
         if not member:
             return {"error": f"Member not found: {member_id}"}
+        if duration < 0 or duration > 2419200:
+            return {"error": "Duration must be 0-2419200 seconds (28 days max)"}
         if duration == 0:
             await member.timeout(None, reason=reason)
         else:
@@ -1380,7 +1394,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         if "name" in cmd:
             kwargs["name"] = cmd["name"]
         if "color" in cmd:
-            kwargs["color"] = discord.Color(int(str(cmd["color"]).lstrip("#"), 16))
+            try:
+                kwargs["color"] = discord.Color(int(str(cmd["color"]).lstrip("#"), 16))
+            except (ValueError, TypeError):
+                return {"error": f"Invalid color: {cmd['color']} (use hex like ff0000)"}
         if "hoist" in cmd:
             kwargs["hoist"] = cmd["hoist"]
         if "mentionable" in cmd:
@@ -1505,11 +1522,17 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         start_time = cmd.get("start_time")
         if not name or not start_time:
             return {"error": "Missing 'name' or 'start_time'"}
-        kwargs = {"name": name, "start_time": datetime.fromisoformat(start_time)}
+        try:
+            kwargs = {"name": name, "start_time": datetime.fromisoformat(start_time)}
+        except ValueError:
+            return {"error": f"Invalid start_time format: {start_time}"}
         if "description" in cmd:
             kwargs["description"] = cmd["description"]
         if "end_time" in cmd:
-            kwargs["end_time"] = datetime.fromisoformat(cmd["end_time"])
+            try:
+                kwargs["end_time"] = datetime.fromisoformat(cmd["end_time"])
+            except ValueError:
+                return {"error": f"Invalid end_time format: {cmd['end_time']}"}
         if "location" in cmd:
             kwargs["location"] = cmd["location"]
             kwargs["entity_type"] = discord.EntityType.external

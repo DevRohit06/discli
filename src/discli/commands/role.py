@@ -69,7 +69,10 @@ def role_create(ctx, server, name, color, permissions):
             guild = resolve_guild(client, server)
             kwargs = {"name": name}
             if color:
-                kwargs["color"] = discord.Color(int(color, 16))
+                try:
+                    kwargs["color"] = discord.Color(int(color.lstrip("#"), 16))
+                except ValueError:
+                    raise click.ClickException(f"Invalid color: {color} (use hex like ff0000)")
             if permissions:
                 kwargs["permissions"] = discord.Permissions(int(permissions))
             role = await guild.create_role(**kwargs)
@@ -160,7 +163,10 @@ def role_edit(ctx, server, role, name, color, hoist, mentionable):
             if name is not None:
                 kwargs["name"] = name
             if color is not None:
-                kwargs["color"] = discord.Color(int(color, 16))
+                try:
+                    kwargs["color"] = discord.Color(int(color.lstrip("#"), 16))
+                except ValueError:
+                    raise click.ClickException(f"Invalid color: {color} (use hex like ff0000)")
             if hoist is not None:
                 kwargs["hoist"] = hoist
             if mentionable is not None:

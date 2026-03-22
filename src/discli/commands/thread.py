@@ -165,7 +165,11 @@ def thread_add_member(ctx, thread, member_id):
     def action(client):
         async def _action(client):
             t = resolve_thread(client, thread)
-            member = t.guild.get_member(int(member_id))
+            try:
+                mid = int(member_id)
+            except ValueError:
+                raise click.ClickException(f"Invalid member ID: {member_id}")
+            member = t.guild.get_member(mid)
             if not member:
                 raise click.ClickException(f"Member not found: {member_id}")
             await t.add_user(member)
@@ -184,7 +188,11 @@ def thread_remove_member(ctx, thread, member_id):
     def action(client):
         async def _action(client):
             t = resolve_thread(client, thread)
-            member = t.guild.get_member(int(member_id))
+            try:
+                mid = int(member_id)
+            except ValueError:
+                raise click.ClickException(f"Invalid member ID: {member_id}")
+            member = t.guild.get_member(mid)
             if not member:
                 raise click.ClickException(f"Member not found: {member_id}")
             await t.remove_user(member)

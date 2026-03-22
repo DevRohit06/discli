@@ -190,6 +190,10 @@ def member_timeout(ctx, server, member, duration, reason, triggered_by):
                 from discli.security import check_user_permission
                 await check_user_permission(guild, int(triggered_by), "moderate_members")
             m = resolve_member(guild, member)
+            if duration < 0:
+                raise click.ClickException("Duration must be >= 0")
+            if duration > 2419200:
+                raise click.ClickException("Duration cannot exceed 2419200 seconds (28 days)")
             name = str(m)
             if duration == 0:
                 await m.timeout(None, reason=reason)
