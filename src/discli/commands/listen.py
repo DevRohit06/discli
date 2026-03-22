@@ -8,7 +8,7 @@ import discord
 @click.command("listen")
 @click.option("--server", default=None, help="Filter by server name or ID.")
 @click.option("--channel", default=None, help="Filter by channel name or ID.")
-@click.option("--events", default=None, help="Comma-separated event types: messages,reactions,members,edits,deletes")
+@click.option("--events", default=None, help="Comma-separated event types: messages,reactions,members,edits,deletes,voice")
 @click.option("--ignore-bots/--include-bots", default=True, help="Ignore messages from bots (default: ignore).")
 @click.pass_context
 def listen_cmd(ctx, server, channel, events, ignore_bots):
@@ -191,6 +191,40 @@ def listen_cmd(ctx, server, channel, events, ignore_bots):
             "member_id": str(member.id),
         }
         emit(data, f"{data['member']} (uid:{data['member_id']}) left {data['server']}")
+
+    @client.event
+    async def on_voice_state_update(member, before, after):
+        if event_filter and "voice" not in event_filter:
+            return
+        event_data = {
+            "event": "voice_state",
+            "server": member.guild.name,
+            "server_id": str(member.guild.id),
+            "member": str(member),
+            "member_id": str(member.id),
+        }
+        if before.channel is None and after.channel is not None:
+            event_data["action"] = "joined"
+            event_data["channel"] = after.channel.name
+            event_data["channel_id"] = str(after.channel.id)
+            plain = f"{member} joined voice #{after.channel.name}"
+        elif before.channel is not None and after.channel is None:
+            event_data["action"] = "left"
+            event_data["channel"] = before.channel.name
+            event_data["channel_id"] = str(before.channel.id)
+            plain = f"{member} left voice #{before.channel.name}"
+        elif before.channel != after.channel:
+            event_data["action"] = "moved"
+            event_data["from_channel"] = before.channel.name
+            event_data["from_channel_id"] = str(before.channel.id)
+            event_data["channel"] = after.channel.name
+            event_data["channel_id"] = str(after.channel.id)
+            plain = f"{member} moved from #{before.channel.name} to #{after.channel.name}"
+        else:
+            event_data["action"] = "updated"
+            event_data["channel"] = after.channel.name if after.channel else None
+            plain = f"{member} voice state updated in #{after.channel.name if after.channel else '?'}"
+        emit(event_data, plain)
 
     try:
         asyncio.run(client.start(token))

@@ -22,7 +22,7 @@ CODE_BLOCK_FILE_THRESHOLD = 800
 @click.command("serve")
 @click.option("--server", default=None, help="Filter events by server name or ID.")
 @click.option("--channel", default=None, help="Filter events by channel name or ID.")
-@click.option("--events", default=None, help="Comma-separated event types: messages,reactions,members,edits,deletes")
+@click.option("--events", default=None, help="Comma-separated event types: messages,reactions,members,edits,deletes,voice")
 @click.option("--include-self/--no-include-self", default=True, help="Include bot's own messages in events (default: include).")
 @click.option("--slash-commands", "slash_commands_file", default=None, type=click.Path(exists=True),
               help="JSON file defining slash commands to register.")
@@ -87,6 +87,90 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     def resolve_channel_by_id(channel_id: str):
         return client.get_channel(int(channel_id))
+
+    def _build_embed(embed_data: dict) -> discord.Embed:
+        """Build a discord.Embed from a JSON-friendly dict."""
+        kwargs = {}
+        if "title" in embed_data:
+            kwargs["title"] = embed_data["title"]
+        if "description" in embed_data:
+            kwargs["description"] = embed_data["description"]
+        if "color" in embed_data:
+            kwargs["color"] = discord.Color(int(str(embed_data["color"]).lstrip("#"), 16))
+        if "url" in embed_data:
+            kwargs["url"] = embed_data["url"]
+        embed = discord.Embed(**kwargs)
+        if "footer" in embed_data:
+            footer = embed_data["footer"]
+            if isinstance(footer, str):
+                embed.set_footer(text=footer)
+            else:
+                embed.set_footer(text=footer.get("text", ""), icon_url=footer.get("icon_url"))
+        if "image" in embed_data:
+            embed.set_image(url=embed_data["image"])
+        if "thumbnail" in embed_data:
+            embed.set_thumbnail(url=embed_data["thumbnail"])
+        if "author" in embed_data:
+            author = embed_data["author"]
+            if isinstance(author, str):
+                embed.set_author(name=author)
+            else:
+                embed.set_author(name=author.get("name", ""), url=author.get("url"), icon_url=author.get("icon_url"))
+        for field in embed_data.get("fields", []):
+            embed.add_field(
+                name=field.get("name", ""),
+                value=field.get("value", ""),
+                inline=field.get("inline", False),
+            )
+        return embed
+
+    def _build_view(components: list) -> discord.ui.View:
+        """Build a discord.ui.View from a JSON-friendly component list."""
+        view = discord.ui.View(timeout=None)
+        style_map = {
+            "primary": discord.ButtonStyle.primary,
+            "secondary": discord.ButtonStyle.secondary,
+            "success": discord.ButtonStyle.success,
+            "danger": discord.ButtonStyle.danger,
+            "link": discord.ButtonStyle.link,
+        }
+        for row in components:
+            items = row if isinstance(row, list) else [row]
+            for item in items:
+                if item["type"] == "button":
+                    btn_kwargs = {
+                        "label": item.get("label", ""),
+                        "style": style_map.get(item.get("style", "primary"), discord.ButtonStyle.primary),
+                    }
+                    if item.get("style") == "link":
+                        btn_kwargs["url"] = item["url"]
+                    else:
+                        btn_kwargs["custom_id"] = item.get("custom_id", str(uuid.uuid4())[:8])
+                    if item.get("emoji"):
+                        btn_kwargs["emoji"] = item["emoji"]
+                    if item.get("disabled"):
+                        btn_kwargs["disabled"] = True
+                    view.add_item(discord.ui.Button(**btn_kwargs))
+                elif item["type"] == "select":
+                    options = [
+                        discord.SelectOption(
+                            label=opt["label"],
+                            value=opt.get("value", opt["label"]),
+                            description=opt.get("description"),
+                            emoji=opt.get("emoji"),
+                            default=opt.get("default", False),
+                        )
+                        for opt in item.get("options", [])
+                    ]
+                    select = discord.ui.Select(
+                        custom_id=item.get("custom_id", str(uuid.uuid4())[:8]),
+                        placeholder=item.get("placeholder"),
+                        min_values=item.get("min_values", 1),
+                        max_values=item.get("max_values", 1),
+                        options=options,
+                    )
+                    view.add_item(select)
+        return view
 
     # ── Discord Events → stdout ─────────────────────────────────────
 
@@ -238,6 +322,90 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             "member": str(member),
             "member_id": str(member.id),
         })
+
+    @client.event
+    async def on_voice_state_update(member, before, after):
+        if event_filter and "voice" not in event_filter:
+            return
+        event_data = {
+            "event": "voice_state",
+            "server": member.guild.name,
+            "server_id": str(member.guild.id),
+            "member": str(member),
+            "member_id": str(member.id),
+        }
+        if before.channel is None and after.channel is not None:
+            event_data["action"] = "joined"
+            event_data["channel"] = after.channel.name
+            event_data["channel_id"] = str(after.channel.id)
+        elif before.channel is not None and after.channel is None:
+            event_data["action"] = "left"
+            event_data["channel"] = before.channel.name
+            event_data["channel_id"] = str(before.channel.id)
+        elif before.channel != after.channel:
+            event_data["action"] = "moved"
+            event_data["from_channel"] = before.channel.name
+            event_data["from_channel_id"] = str(before.channel.id)
+            event_data["channel"] = after.channel.name
+            event_data["channel_id"] = str(after.channel.id)
+        else:
+            event_data["action"] = "updated"
+            event_data["channel"] = after.channel.name if after.channel else None
+            event_data["channel_id"] = str(after.channel.id) if after.channel else None
+            event_data["self_mute"] = after.self_mute
+            event_data["self_deaf"] = after.self_deaf
+            event_data["mute"] = after.mute
+            event_data["deaf"] = after.deaf
+        emit(event_data)
+
+    @client.event
+    async def on_disconnect():
+        emit({"event": "disconnected"})
+
+    @client.event
+    async def on_resumed():
+        emit({"event": "resumed"})
+
+    @client.event
+    async def on_interaction(interaction: discord.Interaction):
+        # Skip slash commands — handled by CommandTree
+        if interaction.type == discord.InteractionType.application_command:
+            return
+        if interaction.type == discord.InteractionType.component:
+            data = interaction.data
+            itk = str(uuid.uuid4())
+            interactions[itk] = interaction
+            await interaction.response.defer()
+            emit({
+                "event": "component_interaction",
+                "custom_id": data.get("custom_id"),
+                "component_type": data.get("component_type"),
+                "values": data.get("values", []),
+                "channel_id": str(interaction.channel_id),
+                "message_id": str(interaction.message.id) if interaction.message else None,
+                "user": str(interaction.user),
+                "user_id": str(interaction.user.id),
+                "guild_id": str(interaction.guild_id) if interaction.guild_id else None,
+                "interaction_token": itk,
+            })
+        elif interaction.type == discord.InteractionType.modal_submit:
+            data = interaction.data
+            itk = str(uuid.uuid4())
+            interactions[itk] = interaction
+            fields = {}
+            for comp in data.get("components", []):
+                for inner in comp.get("components", []):
+                    fields[inner["custom_id"]] = inner.get("value", "")
+            emit({
+                "event": "modal_submit",
+                "custom_id": data.get("custom_id"),
+                "fields": fields,
+                "channel_id": str(interaction.channel_id),
+                "user": str(interaction.user),
+                "user_id": str(interaction.user.id),
+                "guild_id": str(interaction.guild_id) if interaction.guild_id else None,
+                "interaction_token": itk,
+            })
 
     # ── Slash Commands ──────────────────────────────────────────────
 
@@ -568,10 +736,14 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         for f in cmd.get("files", []):
             files.append(discord.File(f))
         kwargs = {"content": content}
+        if "embed" in cmd:
+            kwargs["embed"] = _build_embed(cmd["embed"])
+        if "components" in cmd:
+            kwargs["view"] = _build_view(cmd["components"])
         if files:
             kwargs["files"] = files
         msg = await ch.send(**kwargs)
-        return {"ok": True, "message_id": str(msg.id)}
+        return {"ok": True, "message_id": str(msg.id), "jump_url": msg.jump_url}
 
     async def _action_reply(cmd: dict) -> dict:
         ch = resolve_channel_by_id(cmd["channel_id"])
@@ -583,10 +755,14 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         for f in cmd.get("files", []):
             files.append(discord.File(f))
         kwargs = {"content": content}
+        if "embed" in cmd:
+            kwargs["embed"] = _build_embed(cmd["embed"])
+        if "components" in cmd:
+            kwargs["view"] = _build_view(cmd["components"])
         if files:
             kwargs["files"] = files
         msg = await original.reply(**kwargs)
-        return {"ok": True, "message_id": str(msg.id)}
+        return {"ok": True, "message_id": str(msg.id), "jump_url": msg.jump_url}
 
     async def _action_edit(cmd: dict) -> dict:
         ch = resolve_channel_by_id(cmd["channel_id"])
@@ -764,6 +940,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             "reply_to": str(msg.reference.message_id)
             if msg.reference
             else None,
+            "jump_url": msg.jump_url,
         }
 
     async def _action_message_search(cmd: dict) -> dict:
@@ -1029,6 +1206,322 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             })
         return {"ok": True, "threads": threads}
 
+    # ── New Action Handlers ───────────────────────────────────────
+
+    async def _action_message_bulk_delete(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        message_ids = cmd.get("message_ids", [])
+        if not message_ids:
+            return {"error": "Missing 'message_ids'"}
+        messages = []
+        for mid in message_ids:
+            msg = await ch.fetch_message(int(mid))
+            messages.append(msg)
+        await ch.delete_messages(messages)
+        return {"ok": True, "deleted": len(messages)}
+
+    async def _action_modal_send(cmd: dict) -> dict:
+        """Send a modal form to an interaction."""
+        itk = cmd.get("interaction_token")
+        interaction = interactions.get(itk)
+        if not interaction:
+            return {"error": f"Unknown interaction: {itk}"}
+        modal = discord.ui.Modal(
+            title=cmd.get("title", "Form"),
+            custom_id=cmd.get("custom_id", str(uuid.uuid4())[:8]),
+        )
+        for field in cmd.get("fields", []):
+            style = discord.TextStyle.short if field.get("style", "short") == "short" else discord.TextStyle.long
+            modal.add_item(discord.ui.TextInput(
+                label=field.get("label", ""),
+                custom_id=field.get("custom_id", field.get("label", "")),
+                style=style,
+                placeholder=field.get("placeholder"),
+                default=field.get("default"),
+                required=field.get("required", True),
+                max_length=field.get("max_length"),
+            ))
+        await interaction.response.send_modal(modal)
+        interactions.pop(itk, None)
+        return {"ok": True}
+
+    async def _action_channel_edit(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        kwargs = {}
+        if "name" in cmd:
+            kwargs["name"] = cmd["name"]
+        if "topic" in cmd:
+            kwargs["topic"] = cmd["topic"]
+        if "slowmode" in cmd:
+            kwargs["slowmode_delay"] = cmd["slowmode"]
+        if "nsfw" in cmd:
+            kwargs["nsfw"] = cmd["nsfw"]
+        if not kwargs:
+            return {"error": "No changes specified"}
+        await ch.edit(**kwargs)
+        return {"ok": True, "channel_id": str(ch.id), "updated": list(kwargs.keys())}
+
+    async def _action_channel_set_permissions(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        target_type = cmd.get("target_type", "role")
+        target_id = cmd.get("target_id")
+        if not target_id:
+            return {"error": "Missing 'target_id'"}
+        guild = ch.guild
+        if target_type == "role":
+            obj = guild.get_role(int(target_id))
+        else:
+            obj = guild.get_member(int(target_id))
+        if not obj:
+            return {"error": f"Target not found: {target_id}"}
+        overwrite = ch.overwrites_for(obj)
+        for perm in cmd.get("allow", []):
+            setattr(overwrite, perm, True)
+        for perm in cmd.get("deny", []):
+            setattr(overwrite, perm, False)
+        await ch.set_permissions(obj, overwrite=overwrite)
+        return {"ok": True}
+
+    async def _action_forum_post(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        if not isinstance(ch, discord.ForumChannel):
+            return {"error": f"Not a forum channel: {cmd.get('channel_id')}"}
+        title = cmd.get("title")
+        content = cmd.get("content", "")
+        if not title:
+            return {"error": "Missing 'title' for forum post"}
+        kwargs = {"content": content}
+        if "embed" in cmd:
+            kwargs["embed"] = _build_embed(cmd["embed"])
+        thread, msg = await ch.create_thread(name=title, **kwargs)
+        return {"ok": True, "thread_id": str(thread.id), "thread_name": thread.name, "message_id": str(msg.id)}
+
+    async def _action_thread_archive(cmd: dict) -> dict:
+        thread_id = cmd.get("thread_id")
+        thread = client.get_channel(int(thread_id))
+        if not thread:
+            return {"error": f"Thread not found: {thread_id}"}
+        await thread.edit(archived=cmd.get("archived", True))
+        return {"ok": True, "thread_id": str(thread.id)}
+
+    async def _action_thread_rename(cmd: dict) -> dict:
+        thread_id = cmd.get("thread_id")
+        name = cmd.get("name")
+        thread = client.get_channel(int(thread_id))
+        if not thread:
+            return {"error": f"Thread not found: {thread_id}"}
+        await thread.edit(name=name)
+        return {"ok": True, "thread_id": str(thread.id), "name": name}
+
+    async def _action_thread_add_member(cmd: dict) -> dict:
+        thread_id = cmd.get("thread_id")
+        member_id = cmd.get("member_id")
+        thread = client.get_channel(int(thread_id))
+        if not thread:
+            return {"error": f"Thread not found: {thread_id}"}
+        member = thread.guild.get_member(int(member_id))
+        if not member:
+            return {"error": f"Member not found: {member_id}"}
+        await thread.add_user(member)
+        return {"ok": True}
+
+    async def _action_thread_remove_member(cmd: dict) -> dict:
+        thread_id = cmd.get("thread_id")
+        member_id = cmd.get("member_id")
+        thread = client.get_channel(int(thread_id))
+        if not thread:
+            return {"error": f"Thread not found: {thread_id}"}
+        member = thread.guild.get_member(int(member_id))
+        if not member:
+            return {"error": f"Member not found: {member_id}"}
+        await thread.remove_user(member)
+        return {"ok": True}
+
+    async def _action_member_timeout(cmd: dict) -> dict:
+        from datetime import timedelta
+        guild_id = cmd.get("guild_id")
+        member_id = cmd.get("member_id")
+        duration = cmd.get("duration", 0)
+        reason = cmd.get("reason")
+        if not guild_id or not member_id:
+            return {"error": "Missing 'guild_id' or 'member_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        member = guild.get_member(int(member_id))
+        if not member:
+            return {"error": f"Member not found: {member_id}"}
+        if duration == 0:
+            await member.timeout(None, reason=reason)
+        else:
+            await member.timeout(timedelta(seconds=duration), reason=reason)
+        return {"ok": True, "member": str(member), "duration": duration}
+
+    async def _action_role_edit(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        role_id = cmd.get("role_id")
+        if not guild_id or not role_id:
+            return {"error": "Missing 'guild_id' or 'role_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        role = guild.get_role(int(role_id))
+        if not role:
+            return {"error": f"Role not found: {role_id}"}
+        kwargs = {}
+        if "name" in cmd:
+            kwargs["name"] = cmd["name"]
+        if "color" in cmd:
+            kwargs["color"] = discord.Color(int(str(cmd["color"]).lstrip("#"), 16))
+        if "hoist" in cmd:
+            kwargs["hoist"] = cmd["hoist"]
+        if "mentionable" in cmd:
+            kwargs["mentionable"] = cmd["mentionable"]
+        await role.edit(**kwargs)
+        return {"ok": True, "role_id": str(role.id), "updated": list(kwargs.keys())}
+
+    async def _action_reaction_users(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        msg = await ch.fetch_message(int(cmd["message_id"]))
+        emoji = cmd.get("emoji")
+        limit = cmd.get("limit", 100)
+        target = None
+        for r in msg.reactions:
+            if str(r.emoji) == emoji:
+                target = r
+                break
+        if not target:
+            return {"ok": True, "users": []}
+        users = [u async for u in target.users(limit=limit)]
+        return {"ok": True, "users": [
+            {"id": str(u.id), "name": str(u), "bot": u.bot} for u in users
+        ]}
+
+    async def _action_poll_results(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        msg = await ch.fetch_message(int(cmd["message_id"]))
+        if not msg.poll:
+            return {"error": "Message has no poll"}
+        poll = msg.poll
+        answers = []
+        for answer in poll.answers:
+            answers.append({
+                "id": answer.id,
+                "text": str(answer.text) if answer.text else None,
+                "vote_count": answer.vote_count,
+            })
+        return {
+            "ok": True,
+            "question": str(poll.question),
+            "total_votes": poll.total_votes,
+            "is_finalised": poll.is_finalised(),
+            "answers": answers,
+        }
+
+    async def _action_poll_end(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        msg = await ch.fetch_message(int(cmd["message_id"]))
+        if not msg.poll:
+            return {"error": "Message has no poll"}
+        await msg.end_poll()
+        return {"ok": True}
+
+    async def _action_webhook_list(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        webhooks = await ch.webhooks()
+        return {"ok": True, "webhooks": [
+            {"id": str(w.id), "name": w.name, "url": w.url} for w in webhooks
+        ]}
+
+    async def _action_webhook_create(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        name = cmd.get("name", "discli webhook")
+        webhook = await ch.create_webhook(name=name)
+        return {"ok": True, "webhook_id": str(webhook.id), "name": webhook.name, "url": webhook.url}
+
+    async def _action_webhook_delete(cmd: dict) -> dict:
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel not found: {cmd.get('channel_id')}"}
+        webhooks = await ch.webhooks()
+        target = None
+        for w in webhooks:
+            if str(w.id) == cmd.get("webhook_id"):
+                target = w
+                break
+        if not target:
+            return {"error": f"Webhook not found: {cmd.get('webhook_id')}"}
+        await target.delete()
+        return {"ok": True}
+
+    async def _action_event_list(cmd: dict) -> dict:
+        guild_id = cmd.get("guild_id")
+        if not guild_id:
+            return {"error": "Missing 'guild_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        events = guild.scheduled_events
+        return {"ok": True, "events": [
+            {
+                "id": str(e.id),
+                "name": e.name,
+                "description": e.description,
+                "start_time": e.start_time.isoformat() if e.start_time else None,
+                "end_time": e.end_time.isoformat() if e.end_time else None,
+                "status": str(e.status),
+                "user_count": e.user_count,
+            }
+            for e in events
+        ]}
+
+    async def _action_event_create(cmd: dict) -> dict:
+        from datetime import datetime
+        guild_id = cmd.get("guild_id")
+        if not guild_id:
+            return {"error": "Missing 'guild_id'"}
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            return {"error": f"Server not found: {guild_id}"}
+        name = cmd.get("name")
+        start_time = cmd.get("start_time")
+        if not name or not start_time:
+            return {"error": "Missing 'name' or 'start_time'"}
+        kwargs = {"name": name, "start_time": datetime.fromisoformat(start_time)}
+        if "description" in cmd:
+            kwargs["description"] = cmd["description"]
+        if "end_time" in cmd:
+            kwargs["end_time"] = datetime.fromisoformat(cmd["end_time"])
+        if "location" in cmd:
+            kwargs["location"] = cmd["location"]
+            kwargs["entity_type"] = discord.EntityType.external
+        elif "channel_id" in cmd:
+            ch = resolve_channel_by_id(cmd["channel_id"])
+            kwargs["channel"] = ch
+            kwargs["entity_type"] = discord.EntityType.voice
+        else:
+            return {"error": "Specify 'location' or 'channel_id'"}
+        event = await guild.create_scheduled_event(**kwargs)
+        return {"ok": True, "event_id": str(event.id), "name": event.name}
+
     # ── Action Dispatch ────────────────────────────────────────────
 
     _actions: dict[str, callable] = {
@@ -1042,12 +1535,14 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         "message_search": _action_message_search,
         "message_pin": _action_message_pin,
         "message_unpin": _action_message_unpin,
+        "message_bulk_delete": _action_message_bulk_delete,
         # Streaming
         "stream_start": _handle_stream_start,
         "stream_chunk": _handle_stream_chunk,
         "stream_end": _handle_stream_end,
         # Interactions
         "interaction_followup": _action_interaction_followup,
+        "modal_send": _action_modal_send,
         # Typing & presence
         "typing_start": _action_typing_start,
         "typing_stop": _action_typing_stop,
@@ -1055,24 +1550,43 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         # Reactions
         "reaction_add": _action_reaction_add,
         "reaction_remove": _action_reaction_remove,
+        "reaction_users": _action_reaction_users,
         # Threads
         "thread_create": _action_thread_create,
         "thread_send": _action_thread_send,
         "thread_list": _action_thread_list,
+        "thread_archive": _action_thread_archive,
+        "thread_rename": _action_thread_rename,
+        "thread_add_member": _action_thread_add_member,
+        "thread_remove_member": _action_thread_remove_member,
         # Polls
         "poll_send": _action_poll_send,
+        "poll_results": _action_poll_results,
+        "poll_end": _action_poll_end,
         # Channels
         "channel_list": _action_channel_list,
         "channel_create": _action_channel_create,
         "channel_info": _action_channel_info,
+        "channel_edit": _action_channel_edit,
+        "channel_set_permissions": _action_channel_set_permissions,
+        "forum_post": _action_forum_post,
         # DMs
         "dm_send": _action_dm_send,
         # Members & roles
         "member_list": _action_member_list,
         "member_info": _action_member_info,
+        "member_timeout": _action_member_timeout,
         "role_list": _action_role_list,
         "role_assign": _action_role_assign,
         "role_remove": _action_role_remove,
+        "role_edit": _action_role_edit,
+        # Webhooks
+        "webhook_list": _action_webhook_list,
+        "webhook_create": _action_webhook_create,
+        "webhook_delete": _action_webhook_delete,
+        # Events
+        "event_list": _action_event_list,
+        "event_create": _action_event_create,
         # Server
         "server_list": _action_server_list,
         "server_info": _action_server_info,
@@ -1095,9 +1609,11 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         except Exception as e:
             return {"error": str(e)}
 
-    # ── Run ─────────────────────────────────────────────────────────
+    # ── Run (reconnect=True is discord.py default) ─────────────────
 
     try:
-        asyncio.run(client.start(token))
+        asyncio.run(client.start(token, reconnect=True))
     except KeyboardInterrupt:
         emit({"event": "shutdown"})
+    except Exception as e:
+        emit({"event": "error", "message": f"Fatal: {e}"})
