@@ -109,3 +109,86 @@ def thread_send(ctx, thread, text, files):
         return _action(client)
 
     run_discord(ctx, action)
+
+
+@thread_group.command("archive")
+@click.argument("thread")
+@click.pass_context
+def thread_archive(ctx, thread):
+    """Archive a thread."""
+    def action(client):
+        async def _action(client):
+            t = resolve_thread(client, thread)
+            await t.edit(archived=True)
+            output(ctx, {"id": str(t.id), "archived": True}, plain_text=f"Archived thread '{t.name}'")
+        return _action(client)
+    run_discord(ctx, action)
+
+
+@thread_group.command("unarchive")
+@click.argument("thread")
+@click.pass_context
+def thread_unarchive(ctx, thread):
+    """Unarchive a thread."""
+    def action(client):
+        async def _action(client):
+            t = resolve_thread(client, thread)
+            await t.edit(archived=False)
+            output(ctx, {"id": str(t.id), "archived": False}, plain_text=f"Unarchived thread '{t.name}'")
+        return _action(client)
+    run_discord(ctx, action)
+
+
+@thread_group.command("rename")
+@click.argument("thread")
+@click.argument("new_name")
+@click.pass_context
+def thread_rename(ctx, thread, new_name):
+    """Rename a thread."""
+    def action(client):
+        async def _action(client):
+            t = resolve_thread(client, thread)
+            old = t.name
+            await t.edit(name=new_name)
+            output(ctx, {"id": str(t.id), "old_name": old, "new_name": new_name},
+                   plain_text=f"Renamed thread '{old}' to '{new_name}'")
+        return _action(client)
+    run_discord(ctx, action)
+
+
+@thread_group.command("add-member")
+@click.argument("thread")
+@click.argument("member_id")
+@click.pass_context
+def thread_add_member(ctx, thread, member_id):
+    """Add a member to a thread."""
+    def action(client):
+        async def _action(client):
+            t = resolve_thread(client, thread)
+            member = t.guild.get_member(int(member_id))
+            if not member:
+                raise click.ClickException(f"Member not found: {member_id}")
+            await t.add_user(member)
+            output(ctx, {"thread_id": str(t.id), "member": str(member)},
+                   plain_text=f"Added {member} to thread '{t.name}'")
+        return _action(client)
+    run_discord(ctx, action)
+
+
+@thread_group.command("remove-member")
+@click.argument("thread")
+@click.argument("member_id")
+@click.pass_context
+def thread_remove_member(ctx, thread, member_id):
+    """Remove a member from a thread."""
+    def action(client):
+        async def _action(client):
+            t = resolve_thread(client, thread)
+            member = t.guild.get_member(int(member_id))
+            if not member:
+                raise click.ClickException(f"Member not found: {member_id}")
+            await t.remove_user(member)
+            output(ctx, {"thread_id": str(t.id), "member": str(member)},
+                   plain_text=f"Removed {member} from thread '{t.name}'")
+        return _action(client)
+    run_discord(ctx, action)
