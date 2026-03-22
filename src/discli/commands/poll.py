@@ -62,3 +62,54 @@ def poll_create(ctx, channel, question, answers, duration, multiple, emoji):
         return _action(client)
 
     run_discord(ctx, action)
+
+
+@poll_group.command("results")
+@click.argument("channel")
+@click.argument("message_id")
+@click.pass_context
+def poll_results(ctx, channel, message_id):
+    """View poll results."""
+    def action(client):
+        async def _action(client):
+            ch = resolve_channel(client, channel)
+            msg = await ch.fetch_message(int(message_id))
+            if not msg.poll:
+                raise click.ClickException("Message has no poll")
+            poll = msg.poll
+            data = {
+                "question": str(poll.question),
+                "total_votes": poll.total_votes,
+                "is_finalised": poll.is_finalised(),
+                "answers": [],
+            }
+            for answer in poll.answers:
+                data["answers"].append({
+                    "id": answer.id,
+                    "text": str(answer.text) if answer.text else None,
+                    "vote_count": answer.vote_count,
+                })
+            plain_lines = [f"Poll: {data['question']} (votes: {data['total_votes']})"]
+            for a in data["answers"]:
+                plain_lines.append(f"  {a['text']}: {a['vote_count']} votes")
+            output(ctx, data, plain_text="\n".join(plain_lines))
+        return _action(client)
+    run_discord(ctx, action)
+
+
+@poll_group.command("end")
+@click.argument("channel")
+@click.argument("message_id")
+@click.pass_context
+def poll_end(ctx, channel, message_id):
+    """End a poll early."""
+    def action(client):
+        async def _action(client):
+            ch = resolve_channel(client, channel)
+            msg = await ch.fetch_message(int(message_id))
+            if not msg.poll:
+                raise click.ClickException("Message has no poll")
+            await msg.end_poll()
+            output(ctx, {"ended": True}, plain_text=f"Ended poll on message {message_id}")
+        return _action(client)
+    run_discord(ctx, action)
