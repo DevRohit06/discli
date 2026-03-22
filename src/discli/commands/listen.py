@@ -196,6 +196,8 @@ def listen_cmd(ctx, server, channel, events, ignore_bots):
     async def on_voice_state_update(member, before, after):
         if event_filter and "voice" not in event_filter:
             return
+        if before.channel is None and after.channel is None:
+            return
         event_data = {
             "event": "voice_state",
             "server": member.guild.name,

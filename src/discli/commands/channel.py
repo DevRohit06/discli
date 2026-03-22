@@ -25,7 +25,7 @@ def channel_list(ctx, server):
             channels = []
             for g in guilds:
                 for ch in g.channels:
-                    if isinstance(ch, (discord.TextChannel, discord.VoiceChannel)):
+                    if isinstance(ch, (discord.TextChannel, discord.VoiceChannel, discord.ForumChannel)):
                         channels.append({
                             "id": str(ch.id),
                             "name": ch.name,
@@ -209,12 +209,19 @@ def channel_set_permissions(ctx, channel, target, allow, deny, target_type):
                 if not obj:
                     raise click.ClickException(f"Member not found: {target}")
             overwrite = ch.overwrites_for(obj)
+            valid_perms = {p for p, _ in discord.Permissions()}
             if allow:
                 for perm in allow.split(","):
-                    setattr(overwrite, perm.strip(), True)
+                    p = perm.strip()
+                    if p not in valid_perms:
+                        raise click.ClickException(f"Invalid permission: {p}. Valid: {', '.join(sorted(valid_perms))}")
+                    setattr(overwrite, p, True)
             if deny:
                 for perm in deny.split(","):
-                    setattr(overwrite, perm.strip(), False)
+                    p = perm.strip()
+                    if p not in valid_perms:
+                        raise click.ClickException(f"Invalid permission: {p}. Valid: {', '.join(sorted(valid_perms))}")
+                    setattr(overwrite, p, False)
             await ch.set_permissions(obj, overwrite=overwrite)
             data = {"channel": ch.name, "target": str(obj), "allow": allow, "deny": deny}
             output(ctx, data, plain_text=f"Updated permissions for {obj} on #{ch.name}")

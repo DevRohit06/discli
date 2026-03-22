@@ -37,7 +37,10 @@ def message_send(ctx, channel, text, embed_title, embed_desc, embed_color, embed
                 if embed_desc:
                     embed_kwargs["description"] = embed_desc
                 if embed_color:
-                    embed_kwargs["color"] = discord.Color(int(embed_color, 16))
+                    try:
+                        embed_kwargs["color"] = discord.Color(int(embed_color.lstrip("#"), 16))
+                    except ValueError:
+                        raise click.ClickException(f"Invalid embed color: {embed_color} (use hex like ff0000)")
                 embed = discord.Embed(**embed_kwargs)
                 if embed_footer:
                     embed.set_footer(text=embed_footer)
