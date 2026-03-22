@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Build docs with Lito
         run: npx @litodocs/cli build -i ./docs -o ./docs/dist

@@ -129,12 +129,36 @@ Key fields:
 | `channel_id` | Channel where the command was invoked |
 | `user` / `user_id` | Who invoked it |
 
-## Step 4: Respond with interaction_followup
+## Step 4: Respond to Interactions
 
-The interaction is automatically deferred with a "thinking" indicator when the user invokes the command. Send your response using `interaction_followup`:
+The interaction is automatically deferred with a "thinking" indicator when the user invokes the command. You have three actions for responding to interactions:
+
+### interaction_followup
+
+Send a visible followup message. Supports embeds and components:
 
 ```json
 {"action": "interaction_followup", "interaction_token": "abc-123-def", "content": "Here's your answer!"}
+```
+
+```json
+{"action": "interaction_followup", "interaction_token": "abc-123-def", "content": "", "embed": {"title": "Results", "description": "Found 5 matches", "color": 5865F2}, "components": [{"type": "action_row", "components": [{"type": "button", "style": "primary", "label": "Next Page", "custom_id": "next_page"}]}]}
+```
+
+### interaction_respond
+
+Send an ephemeral response that only the invoking user can see:
+
+```json
+{"action": "interaction_respond", "interaction_token": "abc-123-def", "content": "Only you see this", "ephemeral": true}
+```
+
+### interaction_edit
+
+Edit the original interaction response. Useful for updating buttons or content after user action:
+
+```json
+{"action": "interaction_edit", "interaction_token": "abc-123-def", "content": "Updated!", "components": []}
 ```
 
 <Callout type="danger">

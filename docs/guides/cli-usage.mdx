@@ -44,6 +44,14 @@ discli message send "#announcements" "New release!" \
   --embed-desc "Bug fixes and performance improvements"
 ```
 
+```bash Rich embed with color, footer, and fields
+discli message send "#announcements" "Check this out" \
+  --embed-title "Status Update" \
+  --embed-color 5865F2 \
+  --embed-footer "Last updated today" \
+  --embed-field "Service::Operational::true"
+```
+
 </CodeGroup>
 
 ## Reading Messages
@@ -164,6 +172,9 @@ discli message edit "#general" 1234567890123456 "Updated content here"
 
 # Delete a message (requires confirmation)
 discli message delete "#general" 1234567890123456
+
+# Bulk delete multiple messages by ID
+discli -y message bulk-delete "#general" 111 222 333
 ```
 
 <Callout type="warning">
@@ -196,6 +207,28 @@ discli channel create "My Server" "voice-room" --type voice
 
 # Create a category
 discli channel create "My Server" "Project Alpha" --type category
+
+# Create a forum channel
+discli channel create "My Server" "feedback" --type forum --topic "Share your feedback"
+
+# Create a forum post
+discli channel forum-post "#feedback" "Feature Request" "Add dark mode support"
+```
+</Tab>
+
+<Tab title="Edit channels">
+```bash
+# Edit a channel's topic and slowmode
+discli channel edit "#general" --topic "New topic" --slowmode 10
+```
+</Tab>
+
+<Tab title="Permissions">
+```bash
+# Set channel permissions for a role
+discli channel set-permissions "#general" "Members" \
+  --allow send_messages \
+  --deny manage_messages
 ```
 </Tab>
 
@@ -241,6 +274,12 @@ discli member ban "My Server" "@troll" --reason "Repeated violations"
 
 # Unban
 discli member unban "My Server" "@reformed"
+
+# Timeout a member for 1 hour (3600 seconds)
+discli -y member timeout "My Server" "@spammer" 3600 --reason "Spam"
+
+# Remove a timeout (set duration to 0)
+discli -y member timeout "My Server" "@spammer" 0
 ```
 
 ### The `--triggered-by` Flag
@@ -266,6 +305,9 @@ discli reaction remove "#general" 1234567890123456 "👍"
 
 # List reactions on a message
 discli reaction list "#general" 1234567890123456
+
+# List users who reacted with a specific emoji
+discli reaction users "#general" 1234567890123456 "👍"
 ```
 
 <Callout type="note">
@@ -298,6 +340,17 @@ discli thread send 9876543210 "Replying in the thread"
 
 # Send with file attachment
 discli thread send 9876543210 "Here's the file" --file ./data.json
+
+# Archive / unarchive a thread
+discli thread archive 9876543210
+discli thread unarchive 9876543210
+
+# Rename a thread
+discli thread rename 9876543210 "New Thread Name"
+
+# Add or remove a member from a thread
+discli thread add-member 9876543210 "@alice"
+discli thread remove-member 9876543210 "@alice"
 ```
 
 ## Roles
@@ -314,6 +367,13 @@ discli role assign "My Server" "@alice" "Contributor"
 
 # Remove a role
 discli role remove "My Server" "@alice" "Contributor"
+
+# Edit a role
+discli role edit "My Server" "Contributor" \
+  --name "Core Contributor" \
+  --color 00ff00 \
+  --hoist \
+  --mentionable
 
 # Delete a role (confirmation required)
 discli role delete "My Server" "OldRole"
@@ -337,6 +397,41 @@ discli --json server list | jq '.[] | {name, member_count}'
 ```bash
 # Create a poll (via serve mode action)
 # See the Serve Mode guide for poll_send details
+
+# View poll results
+discli poll results "#general" 1234567890123456
+
+# End a poll early
+discli poll end "#general" 1234567890123456
+```
+
+## Webhooks
+
+```bash
+# List webhooks in a channel
+discli webhook list "#general"
+
+# Create a webhook
+discli webhook create "#general" "Deploy Notifier"
+
+# Delete a webhook (requires confirmation)
+discli -y webhook delete "#general" 9876543210
+```
+
+## Scheduled Events
+
+```bash
+# List scheduled events in a server
+discli event list "My Server"
+
+# Create a scheduled event
+discli event create "My Server" "Game Night" \
+  --start "2026-04-01T20:00:00" \
+  --end "2026-04-01T23:00:00" \
+  --description "Weekly game night"
+
+# Delete a scheduled event (requires confirmation)
+discli -y event delete "My Server" 9876543210
 ```
 
 ## Permission Profiles

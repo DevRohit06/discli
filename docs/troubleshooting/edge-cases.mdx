@@ -154,17 +154,56 @@ An unfiltered self-mention loop can generate hundreds of messages in seconds, po
 
 ## Attachments and embeds
 
-**Symptom:** You want to send an image, file, or rich embed through `discli serve` but the action is not available.
+**Symptom:** You want to send an image, file, or rich embed through discli.
 
-**Cause:** The serve JSONL protocol currently supports text-only messages. Attachments and rich embeds are not yet implemented in the bidirectional protocol.
+**Cause:** Embeds are now fully supported in both CLI and serve mode. File attachments work via CLI and via the `files` field in serve mode actions.
 
 **Fix:**
 
-- For **CLI usage**, file attachments work via the `--file` flag:
+- For **CLI usage**, file attachments work via the `--file` flag, and rich embeds via `--embed-*` flags:
   ```bash
   discli message send "#general" "Here's the report" --file ./report.csv
+  discli message send "#general" "Update" --embed-title "Status" --embed-color "5865F2"
   ```
-- For **serve mode**, this is a known limitation. Text-only messages are supported. Rich embeds and file attachments in the JSONL protocol are planned for a future release
+- For **serve mode**, embeds are sent via the `embed` JSON field, and interactive components (buttons, select menus, modals) via the `components` field. See [Components & Modals](/guides/components-modals) for details
+
+## Hex color validation
+
+**Symptom:** Embed color is rejected or displays incorrectly.
+
+**Cause:** Discord expects embed colors as integer values. discli accepts hex color strings and converts them.
+
+**Fix:** discli accepts hex colors with or without the `#` prefix. Both `"5865F2"` and `"#5865F2"` are valid. Invalid hex strings (e.g., `"ZZZZZZ"`, `"12345"`) are rejected with a clear error message.
+
+## Member timeout duration
+
+**Symptom:** `member_timeout` action fails with an invalid duration error.
+
+**Cause:** Discord enforces a maximum timeout duration of 28 days.
+
+**Fix:** The `duration` field accepts values from `0` to `2419200` seconds (28 days). Use `0` to remove an existing timeout. Values exceeding the maximum are rejected.
+
+## Permission name validation
+
+**Symptom:** `channel_set_permissions` or `role_edit` fails with an invalid permission name.
+
+**Cause:** Permission names are validated against `discord.Permissions()` to ensure they are real Discord permission names.
+
+**Fix:** Use the exact Discord permission names (e.g., `send_messages`, `manage_channels`, `view_channel`). Run `discli role list` to see what permissions existing roles have — those names are the valid ones.
+
+## Forum channels in channel list
+
+**Symptom:** Forum channels were previously missing from `channel_list` results.
+
+**Fix:** Forum channels now appear in channel list results alongside text, voice, and category channels. They are listed with type `forum`.
+
+## Voice state events with null channels
+
+**Symptom:** A `voice_state` event has both `channel` and `old_channel` as `null`.
+
+**Cause:** This can happen in rare edge cases when Discord sends a voice state update for a user whose channel information is not cached.
+
+**Fix:** This is handled gracefully — the event is still emitted with `null` channel fields. Your agent should check for `null` values before processing voice state events
 
 ## Thread auto-archive
 

@@ -38,6 +38,12 @@ discli message send <channel> <text> [OPTIONS]
 | `TEXT` | yes | Message content |
 | `--embed-title TEXT` | no | Embed title |
 | `--embed-desc TEXT` | no | Embed description |
+| `--embed-color HEX` | no | Embed color (e.g. `5865F2`) |
+| `--embed-footer TEXT` | no | Embed footer text |
+| `--embed-image URL` | no | Embed image URL |
+| `--embed-thumbnail URL` | no | Embed thumbnail URL |
+| `--embed-author TEXT` | no | Embed author name |
+| `--embed-field TEXT` | no | Embed field (repeatable, format `Name::Value::Inline`) |
 | `--file PATH` | no | File to attach (repeatable) |
 
 ### message list
@@ -109,6 +115,19 @@ discli message delete <channel> <message_id>
 |----------|----------|-------------|
 | `CHANNEL` | yes | Channel name or ID |
 | `MESSAGE_ID` | yes | Message snowflake ID |
+
+### message bulk-delete
+
+Delete multiple messages at once. Requires confirmation (use `--yes` to skip).
+
+```
+discli message bulk-delete <channel> <id1> <id2> ...
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `ID1 ID2 ...` | yes | Message snowflake IDs to delete |
 
 ### message reply
 
@@ -222,6 +241,21 @@ discli reaction list <channel> <message_id>
 | `CHANNEL` | yes | Channel name or ID |
 | `MESSAGE_ID` | yes | Message snowflake ID |
 
+### reaction users
+
+List users who reacted with a specific emoji.
+
+```
+discli reaction users <channel> <message_id> <emoji> [OPTIONS]
+```
+
+| Argument / Option | Required | Default | Description |
+|-------------------|----------|---------|-------------|
+| `CHANNEL` | yes | | Channel name or ID |
+| `MESSAGE_ID` | yes | | Message snowflake ID |
+| `EMOJI` | yes | | Emoji character or custom emoji string |
+| `--limit N` | no | 100 | Max users to list |
+
 ---
 
 ## channel
@@ -252,7 +286,8 @@ discli channel create <server> <name> [OPTIONS]
 |-------------------|----------|---------|-------------|
 | `SERVER` | yes | | Server name or ID |
 | `NAME` | yes | | Channel name |
-| `--type CHOICE` | no | `text` | Channel type: `text`, `voice`, or `category` |
+| `--type CHOICE` | no | `text` | Channel type: `text`, `voice`, `category`, or `forum` |
+| `--topic TEXT` | no | | Channel topic |
 
 ### channel delete
 
@@ -277,6 +312,53 @@ discli channel info <channel>
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `CHANNEL` | yes | Channel name or ID |
+
+### channel edit
+
+Edit channel settings.
+
+```
+discli channel edit <channel> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `--name TEXT` | no | New channel name |
+| `--topic TEXT` | no | New channel topic |
+| `--slowmode N` | no | Slowmode delay in seconds (0 to disable) |
+| `--nsfw` / `--no-nsfw` | no | Toggle NSFW setting |
+
+### channel forum-post
+
+Create a forum post in a forum channel.
+
+```
+discli channel forum-post <channel> <title> <content> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `CHANNEL` | yes | Forum channel name or ID |
+| `TITLE` | yes | Post title |
+| `CONTENT` | yes | Post body content |
+| `--file PATH` | no | File to attach (repeatable) |
+
+### channel set-permissions
+
+Set permission overwrites for a channel.
+
+```
+discli channel set-permissions <channel> <target> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `TARGET` | yes | Role or member name/ID |
+| `--allow TEXT` | no | Comma-separated permissions to allow |
+| `--deny TEXT` | no | Comma-separated permissions to deny |
+| `--target-type CHOICE` | no | Target type: `role` or `member` (default: `role`) |
 
 ---
 
@@ -323,6 +405,69 @@ discli thread send <thread> <text> [OPTIONS]
 | `THREAD` | yes | Thread name or ID |
 | `TEXT` | yes | Message content |
 | `--file PATH` | no | File to attach (repeatable) |
+
+### thread archive
+
+Archive a thread.
+
+```
+discli thread archive <thread>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `THREAD` | yes | Thread name or ID |
+
+### thread unarchive
+
+Unarchive a thread.
+
+```
+discli thread unarchive <thread>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `THREAD` | yes | Thread name or ID |
+
+### thread rename
+
+Rename a thread.
+
+```
+discli thread rename <thread> <new_name>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `THREAD` | yes | Thread name or ID |
+| `NEW_NAME` | yes | New thread name |
+
+### thread add-member
+
+Add a member to a thread.
+
+```
+discli thread add-member <thread> <member_id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `THREAD` | yes | Thread name or ID |
+| `MEMBER_ID` | yes | Member user ID |
+
+### thread remove-member
+
+Remove a member from a thread.
+
+```
+discli thread remove-member <thread> <member_id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `THREAD` | yes | Thread name or ID |
+| `MEMBER_ID` | yes | Member user ID |
 
 ---
 
@@ -426,6 +571,23 @@ discli role remove <server> <member> <role>
 | `MEMBER` | yes | Member name or ID |
 | `ROLE` | yes | Role name or ID |
 
+### role edit
+
+Edit a role's settings.
+
+```
+discli role edit <server> <role> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `ROLE` | yes | Role name or ID |
+| `--name TEXT` | no | New role name |
+| `--color HEX` | no | Hex color (e.g. `ff0000`) |
+| `--hoist` / `--no-hoist` | no | Toggle displaying role separately in sidebar |
+| `--mentionable` / `--no-mentionable` | no | Toggle whether role can be @-mentioned |
+
 ---
 
 ## member
@@ -502,6 +664,22 @@ discli member unban <server> <member> [OPTIONS]
 | `MEMBER` | yes | Member name or ID (username or user ID) |
 | `--triggered-by TEXT` | no | User ID who triggered this action (for permission check) |
 
+### member timeout
+
+Timeout a member, preventing them from sending messages or joining voice. Requires confirmation (use `--yes` to skip).
+
+```
+discli member timeout <server> <member> <duration> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `MEMBER` | yes | Member name or ID |
+| `DURATION` | yes | Timeout duration in seconds (0 to remove timeout) |
+| `--reason TEXT` | no | Reason for timeout |
+| `--triggered-by TEXT` | no | User ID who triggered this action (for permission check) |
+
 ---
 
 ## poll
@@ -533,6 +711,32 @@ discli poll create #general "Best?" A B C -e a_emoji -e b_emoji -e c_emoji
 discli poll create #general "Vote!" Yes No --multiple -e ok -e x
 ```
 
+### poll results
+
+View results of a poll.
+
+```
+discli poll results <channel> <message_id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `MESSAGE_ID` | yes | Message snowflake ID of the poll |
+
+### poll end
+
+End a poll early.
+
+```
+discli poll end <channel> <message_id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `MESSAGE_ID` | yes | Message snowflake ID of the poll |
+
 ---
 
 ## typing
@@ -562,7 +766,7 @@ discli listen [OPTIONS]
 |--------|----------|---------|-------------|
 | `--server TEXT` | no | | Filter by server name or ID |
 | `--channel TEXT` | no | | Filter by channel name or ID |
-| `--events TEXT` | no | all | Comma-separated event types: `messages`, `reactions`, `members`, `edits`, `deletes` |
+| `--events TEXT` | no | all | Comma-separated event types: `messages`, `reactions`, `members`, `edits`, `deletes`, `voice` |
 | `--ignore-bots` / `--include-bots` | no | `--ignore-bots` | Ignore messages from bots |
 
 ---
@@ -579,7 +783,7 @@ discli serve [OPTIONS]
 |--------|----------|---------|-------------|
 | `--server TEXT` | no | | Filter events by server name or ID |
 | `--channel TEXT` | no | | Filter events by channel name or ID |
-| `--events TEXT` | no | all | Comma-separated event types: `messages`, `reactions`, `members`, `edits`, `deletes` |
+| `--events TEXT` | no | all | Comma-separated event types: `messages`, `reactions`, `members`, `edits`, `deletes`, `voice` |
 | `--include-self` / `--no-include-self` | no | `--include-self` | Include bot's own messages in events |
 | `--slash-commands PATH` | no | | JSON file defining slash commands to register |
 | `--status CHOICE` | no | `online` | Bot status: `online`, `idle`, `dnd`, `invisible` |
@@ -587,6 +791,99 @@ discli serve [OPTIONS]
 | `--activity-text TEXT` | no | | Activity display text |
 
 See [Serve Actions](/reference/serve-actions) and [Serve Events](/reference/serve-events) for the full JSONL protocol.
+
+---
+
+## webhook
+
+Manage channel webhooks.
+
+### webhook list
+
+List webhooks for a channel.
+
+```
+discli webhook list <channel>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+
+### webhook create
+
+Create a webhook for a channel.
+
+```
+discli webhook create <channel> <name>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `NAME` | yes | Webhook name |
+
+### webhook delete
+
+Delete a webhook. Requires confirmation (use `--yes` to skip).
+
+```
+discli webhook delete <channel> <webhook_id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `CHANNEL` | yes | Channel name or ID |
+| `WEBHOOK_ID` | yes | Webhook snowflake ID |
+
+---
+
+## event
+
+Manage scheduled server events.
+
+### event list
+
+List scheduled events for a server.
+
+```
+discli event list <server>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+
+### event create
+
+Create a scheduled event.
+
+```
+discli event create <server> <name> <start_time> [OPTIONS]
+```
+
+| Argument / Option | Required | Description |
+|-------------------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `NAME` | yes | Event name |
+| `START_TIME` | yes | Start time (ISO 8601 format) |
+| `--end-time TEXT` | no | End time (ISO 8601 format) |
+| `--location TEXT` | no | Event location (for external events) |
+| `--channel TEXT` | no | Voice/stage channel for the event |
+| `--description TEXT` | no | Event description |
+
+### event delete
+
+Delete a scheduled event. Requires confirmation (use `--yes` to skip).
+
+```
+discli event delete <server> <event_id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SERVER` | yes | Server name or ID |
+| `EVENT_ID` | yes | Event snowflake ID |
 
 ---
 

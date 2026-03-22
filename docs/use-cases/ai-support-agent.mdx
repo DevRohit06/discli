@@ -1,26 +1,25 @@
 ---
 title: AI Support Agent
-description: Build a Claude-powered support bot that answers questions with context
+description: Build a Claude-powered support bot with full Discord control, interactive components, and streaming responses
 ---
 
 # AI Support Agent
 
-Build an autonomous AI support agent that listens for mentions in your Discord server, gathers conversation context, and responds intelligently using Claude.
+Build an all-in-one AI support agent that uses `discli serve` for full Discord control — interactive components, streaming responses, per-user conversation history, and slash commands.
 
 ## The problem
 
-Your Discord server has a growing community asking repetitive questions. You need a bot that can answer them 24/7 with accurate, context-aware responses -- without hardcoded replies or decision trees.
+Your Discord server has a growing community asking repetitive questions. You need a bot that can answer them 24/7 with accurate, context-aware responses -- without hardcoded replies or decision trees. You also want rich interactions: buttons for feedback, slash commands for common tasks, and streaming responses so users see the answer as it is generated.
 
 ## The solution
 
-Combine the **Claude Agent SDK** with **discli** to create a support agent that:
+Use `ai_serve_agent.py` — an all-in-one AI agent that combines the **Claude Agent SDK** with **discli serve** to provide:
 
-1. Listens for `@mentions` in real time via `discli listen`
-2. Fetches recent channel history for context via `discli message list`
-3. Sends the question + context to Claude for reasoning
-4. Replies directly in Discord via `discli message reply`
-
-The agent runs as a simple Python script. Claude handles the reasoning; discli handles all Discord I/O.
+1. **Full Discord control via CLI commands** — send, reply, edit, delete, react, manage threads, channels, roles, and more
+2. **Interactive components** — buttons, select menus, and modal forms via component blocks
+3. **Streaming responses** — users see the answer word-by-word as Claude generates it
+4. **Per-user conversation history** — each user gets their own context window so the agent remembers previous questions
+5. **Slash commands** — `/ask`, `/help`, `/summarize`, `/clear` registered automatically on startup
 
 ## Architecture
 
@@ -28,159 +27,104 @@ The agent runs as a simple Python script. Claude handles the reasoning; discli h
 Discord Server
     |
     v
-discli listen --events messages   (real-time event stream)
+discli serve  (persistent bidirectional JSONL connection)
     |
     v
-Python script (filters @mentions)
+ai_serve_agent.py
+    ├── Routes events (messages, slash commands, component interactions)
+    ├── Maintains per-user conversation history
+    ├── Sends to Claude Agent SDK for reasoning
+    └── Writes actions to stdin (send, reply, stream, components, modals)
     |
     v
-discli message list (fetch context)
-    |
-    v
-Claude Agent SDK (reason + decide)
-    |
-    v
-discli message reply (send response)
+Discord Server (responses, embeds, buttons, modals)
 ```
 
 ## Full working code
 
-```python
-#!/usr/bin/env python3
-"""AI Support Agent — Claude + discli."""
+The complete agent is available at `examples/ai_serve_agent.py`. Here is how to get started:
 
-import asyncio
-import json
-import os
-import subprocess
+### Install dependencies
 
-# Remove CLAUDECODE env var if present to avoid SDK conflicts
-os.environ.pop("CLAUDECODE", None)
-
-import claude_agent_sdk as sdk
-
-SYSTEM_PROMPT = """You are a helpful Discord support agent.
-Reply concisely. If you don't know the answer, say so honestly.
-Use discli commands to interact with Discord.
-
-Rules:
-- Keep responses under 1900 characters (Discord limit is 2000).
-- Be friendly but professional.
-- If a question requires human help, say so and suggest they open a ticket.
-"""
-
-async def run_agent():
-    options = sdk.ClaudeAgentOptions(
-        system_prompt=SYSTEM_PROMPT,
-        permission_mode="bypassPermissions",
-        max_turns=5,
-    )
-    async with sdk.ClaudeSDKClient(options) as client:
-        # Start listening for messages
-        process = subprocess.Popen(
-            ["discli", "--json", "listen", "--events", "messages"],
-            stdout=subprocess.PIPE,
-            text=True,
-        )
-
-        for line in process.stdout:
-            line = line.strip()
-            if not line:
-                continue
-
-            event = json.loads(line)
-
-            # Only respond to @mentions of the bot
-            if not event.get("mentions_bot"):
-                continue
-
-            channel_id = event["channel_id"]
-            message_id = event["message_id"]
-
-            # Show typing indicator while Claude thinks
-            subprocess.Popen(
-                ["discli", "typing", channel_id, "--duration", "10"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-
-            # Fetch recent messages for context
-            ctx = subprocess.run(
-                ["discli", "--json", "message", "list", channel_id, "--limit", "5"],
-                capture_output=True,
-                text=True,
-            )
-
-            prompt = f"""A user mentioned you in Discord. Here are the details:
-
-User: {event['author']}
-Channel ID: {channel_id}
-Message ID: {message_id}
-Their message: {event['content']}
-
-Recent channel context:
-{ctx.stdout}
-
-Reply to them using this exact command format:
-discli message reply {channel_id} {message_id} "your response here"
-"""
-            # Send to Claude and let it execute the reply command
-            await client.query(prompt)
-            async for msg in client.receive_response():
-                pass  # Claude executes the discli command autonomously
-
-
-if __name__ == "__main__":
-    asyncio.run(run_agent())
+```bash
+pip install discord-cli-agent claude-agent-sdk
 ```
 
-## Step-by-step explanation
+Make sure your bot token is configured:
 
-<Steps>
-  <Step title="Install dependencies">
-    You need both discli and the Claude Agent SDK:
+```bash
+discli config set token YOUR_BOT_TOKEN
+```
 
-    ```bash
-    pip install discord-cli-agent claude-agent-sdk
-    ```
+### Run the agent
 
-    Make sure your bot token is configured:
+```bash
+python examples/ai_serve_agent.py
+```
 
-    ```bash
-    discli config set token YOUR_BOT_TOKEN
-    ```
-  </Step>
+The agent will connect to Discord, register slash commands, and start listening for events.
 
-  <Step title="Start the event stream">
-    The script launches `discli listen --events messages` as a subprocess. This opens a persistent WebSocket connection to Discord and emits one JSON object per line for every new message.
+## What users can do
 
-    ```bash
-    # What the event stream looks like
-    discli --json listen --events messages
-    ```
+### Send messages
 
-    ```json
-    {"event":"message","channel_id":"123...","author":"Alice","content":"@bot how do I reset my password?","mentions_bot":true, ...}
-    ```
-  </Step>
+Users can mention the bot in any channel:
 
-  <Step title="Filter for @mentions">
-    The `mentions_bot` field is `true` when the message includes an @mention of your bot. The script ignores all other messages so Claude is only invoked when someone explicitly asks for help.
-  </Step>
+```
+@bot How do I reset my password?
+@bot What are the server rules?
+@bot Summarize the last 10 messages in this channel
+```
 
-  <Step title="Gather context">
-    Before sending to Claude, the script fetches the 5 most recent messages in the channel using `discli message list`. This gives Claude conversation context so it can understand follow-up questions and avoid repeating what was already said.
-  </Step>
+The agent fetches conversation context, sends it to Claude, and streams the response back in real time.
 
-  <Step title="Send to Claude">
-    The prompt includes the user's question, channel/message IDs, and recent context. Claude reasons about the answer and executes a `discli message reply` command to post the response directly in Discord.
-  </Step>
-</Steps>
+### Use slash commands
+
+| Command | Description |
+|---------|-------------|
+| `/ask question:How do I...` | Ask the bot a question directly |
+| `/help` | Show available commands and capabilities |
+| `/summarize` | Summarize recent conversation in the current channel |
+| `/clear` | Clear your conversation history with the bot |
+
+### Interact with components
+
+The agent can send buttons for feedback, select menus for choices, and modal forms for structured input. When a user clicks a button or submits a form, the agent receives the interaction and responds accordingly.
+
+## Key features
+
+### Streaming responses
+
+When the agent generates a long answer, it streams the response so users see text appearing in real time rather than waiting for the full response:
+
+```json
+{"action": "stream_start", "channel_id": "123", "reply_to": "456"}
+{"action": "stream_chunk", "stream_id": "abc", "content": "Here is "}
+{"action": "stream_chunk", "stream_id": "abc", "content": "the answer..."}
+{"action": "stream_end", "stream_id": "abc"}
+```
+
+### Per-user conversation history
+
+Each user's questions and the agent's responses are stored in memory. This lets the agent handle follow-up questions naturally:
+
+```
+User: What is discli?
+Bot:  discli is a Discord CLI for AI agents and humans...
+User: How do I install it?
+Bot:  You can install it with pip: pip install discord-cli-agent
+```
+
+The `/clear` command resets a user's history.
+
+### Interactive components
+
+The agent can send buttons, select menus, and modals as part of its responses. See the [Components & Modals](/guides/components-modals) guide for the full protocol reference.
 
 ## Edge cases and pitfalls
 
 <Callout type="warning">
-  **Discord's 2000 character limit.** If Claude generates a response longer than 2000 characters, the `discli message reply` command will fail. The system prompt instructs Claude to stay under 1900 characters, but you should also add a truncation safeguard in production.
+  **Discord's 2000 character limit.** Streaming mode handles this automatically — `stream_end` splits content across multiple messages if it exceeds the limit.
 </Callout>
 
 <Callout type="warning">
@@ -188,18 +132,18 @@ if __name__ == "__main__":
 </Callout>
 
 <Callout type="warning">
-  **Claude API costs.** Every @mention triggers a Claude API call. In a busy server, this can add up. Set `max_turns` conservatively (the example uses 5) and consider adding a per-user cooldown to prevent abuse.
+  **Claude API costs.** Every @mention and slash command triggers a Claude API call. In a busy server, this can add up. Consider adding a per-user cooldown to prevent abuse.
 </Callout>
 
 <Callout type="warning">
-  **Error handling.** The example omits error handling for brevity. In production, wrap the `json.loads()` call in a try/except, handle subprocess failures, and add a fallback message like "Sorry, I ran into an issue. Please try again."
+  **Error handling.** The example agent includes basic error handling, but in production you should add fallback messages, retry logic, and monitoring.
 </Callout>
 
 ## Extending the agent
 
 <CardGroup cols={2}>
-  <Card title="Thread-based replies">
-    Instead of replying inline, create a thread for each support request to keep the channel clean. See [Thread-Based Support](/use-cases/thread-based-support).
+  <Card title="Components & Modals">
+    Add buttons, select menus, and modal forms to your agent's responses. See [Components & Modals](/guides/components-modals).
   </Card>
   <Card title="Memory and knowledge base">
     Store past Q&A pairs in a database and include relevant ones in Claude's context. This lets the agent learn from previous answers without retraining.
@@ -207,7 +151,7 @@ if __name__ == "__main__":
   <Card title="Multi-model routing">
     Use a smaller model (like Haiku) for simple questions and route complex ones to Opus. Check the question length or keyword patterns to decide.
   </Card>
-  <Card title="Slash command integration">
-    Register a `/ask` slash command so users do not need to @mention the bot. See [Slash Commands](/guides/slash-commands) for setup.
+  <Card title="Thread-based replies">
+    Instead of replying inline, create a thread for each support request to keep the channel clean. See [Thread-Based Support](/use-cases/thread-based-support).
   </Card>
 </CardGroup>
