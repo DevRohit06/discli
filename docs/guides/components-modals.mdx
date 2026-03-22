@@ -1,0 +1,131 @@
+---
+title: Components & Modals
+description: Send buttons, select menus, and modal forms via discli serve mode.
+---
+
+# Components & Modals
+
+discli serve mode supports Discord's interactive message components — buttons, select menus, and modal forms. These are sent as part of the JSONL protocol via stdin.
+
+## Buttons
+
+Send buttons by adding a `components` field to `send` or `reply` actions:
+
+```json
+{"action": "send", "channel_id": "456", "content": "Click a button:", "components": [
+  [
+    {"type": "button", "label": "Approve", "style": "success", "custom_id": "approve", "emoji": "✅"},
+    {"type": "button", "label": "Reject", "style": "danger", "custom_id": "reject", "emoji": "❌"},
+    {"type": "button", "label": "Docs", "style": "link", "url": "https://example.com"}
+  ]
+]}
+```
+
+### Button styles
+
+| Style | Color | Use for |
+|-------|-------|---------|
+| `primary` | Blue | Main actions |
+| `secondary` | Grey | Alternative actions |
+| `success` | Green | Confirm/approve |
+| `danger` | Red | Destructive/reject |
+| `link` | Grey | External URL (requires `url` instead of `custom_id`) |
+
+Add `"disabled": true` to grey out a button.
+
+## Select Menus
+
+### String select
+```json
+{"action": "send", "channel_id": "456", "content": "Pick:", "components": [
+  [{"type": "select", "custom_id": "color", "placeholder": "Choose a color...", "options": [
+    {"label": "Red", "value": "red", "emoji": "🔴", "description": "Warm color"},
+    {"label": "Blue", "value": "blue", "emoji": "🔵", "description": "Cool color"}
+  ]}]
+]}
+```
+
+### User, Role, Channel selects
+```json
+[{"type": "user_select", "custom_id": "pick_user", "placeholder": "Choose someone..."}]
+[{"type": "role_select", "custom_id": "pick_role", "placeholder": "Choose a role..."}]
+[{"type": "channel_select", "custom_id": "pick_ch", "placeholder": "Choose a channel..."}]
+```
+
+## Handling Interactions
+
+When a user clicks a button or selects from a menu, you receive a `component_interaction` event:
+
+```json
+{"event": "component_interaction", "custom_id": "approve", "component_type": 2, "values": [], "user": "alice", "user_id": "123", "interaction_token": "ITK"}
+```
+
+Respond with one of:
+
+| Action | When to use |
+|--------|-------------|
+| `interaction_respond` | Immediate reply (supports `ephemeral: true`) |
+| `interaction_edit` | Update the original message (e.g., disable buttons) |
+| `interaction_followup` | Send a new followup message |
+| `modal_send` | Open a modal form |
+
+### Ephemeral response (only the clicker sees it)
+```json
+{"action": "interaction_respond", "interaction_token": "ITK", "content": "Done!", "ephemeral": true}
+```
+
+### Edit original message (disable button)
+```json
+{"action": "interaction_edit", "interaction_token": "ITK", "content": "Approved! ✅", "components": [
+  [{"type": "button", "label": "Approved", "style": "secondary", "custom_id": "x", "disabled": true}]
+]}
+```
+
+## Modal Forms
+
+Modals are popup forms with text inputs. They can only be triggered from a component interaction (button click).
+
+### Open a modal
+```json
+{"action": "modal_send", "interaction_token": "ITK", "title": "Feedback Form", "custom_id": "feedback", "fields": [
+  {"label": "Your Name", "custom_id": "name", "style": "short", "placeholder": "Enter name...", "required": true},
+  {"label": "Feedback", "custom_id": "feedback_text", "style": "long", "placeholder": "Share your thoughts...", "max_length": 1000}
+]}
+```
+
+Field styles: `short` (single line) or `long` (multi-line textarea).
+
+### Handle submission
+
+When the user submits, you receive a `modal_submit` event:
+
+```json
+{"event": "modal_submit", "custom_id": "feedback", "fields": {"name": "Alice", "feedback_text": "Great bot!"}, "user": "alice", "interaction_token": "ITK2"}
+```
+
+Respond with `interaction_followup`:
+```json
+{"action": "interaction_followup", "interaction_token": "ITK2", "content": "Thanks!", "embed": {"title": "Feedback Received", "color": "57F287"}}
+```
+
+## Combining Embeds + Components
+
+```json
+{"action": "send", "channel_id": "456", "content": "", "embed": {
+  "title": "Action Required", "description": "Approve this request?", "color": "FEE75C"
+}, "components": [
+  [
+    {"type": "button", "label": "Approve", "style": "success", "custom_id": "approve"},
+    {"type": "button", "label": "Reject", "style": "danger", "custom_id": "reject"}
+  ]
+]}
+```
+
+## Important Notes
+
+- Components are **serve mode only** — the CLI cannot send buttons or selects
+- Each row can have up to 5 buttons or 1 select menu
+- A message can have up to 5 rows of components
+- Component interactions must be responded to within 3 seconds (auto-deferred after 2.5s)
+- Modal text inputs are limited to 4000 characters each
+- `custom_id` max length is 100 characters

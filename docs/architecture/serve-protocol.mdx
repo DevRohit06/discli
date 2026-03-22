@@ -64,6 +64,21 @@ Events are emitted by discli as things happen on Discord. Every event object has
 | Event | Fields | Description |
 |---|---|---|
 | `slash_command` | `command`, `args`, `user`, `user_id`, `channel_id`, `guild_id`, `interaction_token`, `is_admin` | Slash command invoked by a user |
+| `component_interaction` | `custom_id`, `component_type`, `values`, `user`, `user_id`, `channel_id`, `message_id`, `interaction_token` | Button click or select menu choice |
+| `modal_submit` | `custom_id`, `fields`, `user`, `user_id`, `channel_id`, `interaction_token` | Modal form submitted by a user |
+
+### Voice events
+
+| Event | Fields | Description |
+|---|---|---|
+| `voice_state` | `user`, `user_id`, `channel`, `channel_id`, `old_channel`, `old_channel_id`, `guild_id`, `self_mute`, `self_deaf` | User joined, left, or moved voice channels |
+
+### Connection events
+
+| Event | Fields | Description |
+|---|---|---|
+| `disconnected` | `code`, `reason` | Bot disconnected from Discord gateway |
+| `resumed` | -- | Bot reconnected and resumed the session |
 
 ### Reaction events
 
@@ -150,9 +165,9 @@ Actions are JSON objects sent to discli via stdin. Every action must have an `"a
 
 | Action | Required Fields | Optional Fields | Description |
 |---|---|---|---|
-| `send` | `channel_id`, `content` | `files`, `req_id` | Send a message to a channel |
-| `reply` | `channel_id`, `message_id`, `content` | `files`, `req_id` | Reply to a specific message |
-| `edit` | `channel_id`, `message_id`, `content` | `req_id` | Edit a bot message |
+| `send` | `channel_id`, `content` | `embed`, `components`, `files`, `req_id` | Send a message to a channel |
+| `reply` | `channel_id`, `message_id`, `content` | `embed`, `components`, `files`, `req_id` | Reply to a specific message |
+| `edit` | `channel_id`, `message_id`, `content` | `embed`, `components`, `req_id` | Edit a bot message |
 | `delete` | `channel_id`, `message_id` | `req_id` | Delete a message |
 
 ### Streaming
@@ -191,7 +206,10 @@ Streaming lets you progressively update a single message, similar to how ChatGPT
 
 | Action | Required Fields | Optional Fields | Description |
 |---|---|---|---|
-| `interaction_followup` | `interaction_token`, `content` | `req_id` | Send a follow-up response to a slash command |
+| `interaction_respond` | `interaction_token`, `content` | `embed`, `components`, `ephemeral`, `req_id` | Immediate response to a component interaction |
+| `interaction_edit` | `interaction_token` | `content`, `embed`, `components`, `req_id` | Edit the original interaction message |
+| `interaction_followup` | `interaction_token`, `content` | `embed`, `components`, `req_id` | Send a follow-up response to a slash command |
+| `modal_send` | `interaction_token`, `title`, `custom_id`, `fields` | `req_id` | Open a modal form in response to a component interaction |
 
 <Callout type="note">
   Slash command interactions are automatically deferred with a "thinking" indicator. You must respond with either `interaction_followup` or `stream_start` (with the `interaction_token`) within 15 minutes, per Discord's limits.
@@ -226,12 +244,18 @@ Streaming lets you progressively update a single message, similar to how ChatGPT
 | `thread_create` | `channel_id`, `name` | `message_id`, `auto_archive_duration`, `content`, `req_id` | Create a thread (optionally from a message) |
 | `thread_send` | `thread_id`, `content` | `files`, `req_id` | Send a message to a thread |
 | `thread_list` | `channel_id` | `req_id` | List threads in a channel |
+| `thread_archive` | `thread_id` | `req_id` | Archive a thread |
+| `thread_rename` | `thread_id`, `name` | `req_id` | Rename a thread |
+| `thread_add_member` | `thread_id`, `user_id` | `req_id` | Add a member to a thread |
+| `thread_remove_member` | `thread_id`, `user_id` | `req_id` | Remove a member from a thread |
 
 ### Polls
 
 | Action | Required Fields | Optional Fields | Description |
 |---|---|---|---|
 | `poll_send` | `channel_id`, `question`, `answers` | `duration_hours`, `multiple`, `content`, `req_id` | Create a poll in a channel |
+| `poll_results` | `channel_id`, `message_id` | `req_id` | Get current poll results |
+| `poll_end` | `channel_id`, `message_id` | `req_id` | End a poll early |
 
 `answers` is an array of strings or objects with `text` and optional `emoji` fields. Minimum 2 answers required.
 
@@ -242,6 +266,9 @@ Streaming lets you progressively update a single message, similar to how ChatGPT
 | `channel_list` | -- | `guild_id`, `req_id` | List channels (optionally filtered by server) |
 | `channel_create` | `guild_id`, `name` | `type`, `req_id` | Create a channel (`text`, `voice`, or `category`) |
 | `channel_info` | `channel_id` | `req_id` | Get channel details |
+| `channel_edit` | `channel_id` | `name`, `topic`, `nsfw`, `slowmode`, `req_id` | Edit channel settings |
+| `channel_set_permissions` | `channel_id`, `target_id`, `target_type` | `allow`, `deny`, `req_id` | Set permission overwrites for a role or member |
+| `forum_post` | `channel_id`, `name`, `content` | `tags`, `embed`, `req_id` | Create a post in a forum channel |
 
 ### Members
 
@@ -249,6 +276,7 @@ Streaming lets you progressively update a single message, similar to how ChatGPT
 |---|---|---|---|
 | `member_list` | `guild_id` | `limit`, `req_id` | List server members (default limit: 50) |
 | `member_info` | `guild_id`, `member_id` | `req_id` | Get detailed member info including roles |
+| `member_timeout` | `guild_id`, `member_id`, `duration` | `reason`, `req_id` | Timeout a member (max 2419200s / 28 days, 0 to remove) |
 
 ### Roles
 
@@ -257,6 +285,7 @@ Streaming lets you progressively update a single message, similar to how ChatGPT
 | `role_list` | `guild_id` | `req_id` | List server roles |
 | `role_assign` | `guild_id`, `member_id`, `role_id` | `req_id` | Assign a role to a member |
 | `role_remove` | `guild_id`, `member_id`, `role_id` | `req_id` | Remove a role from a member |
+| `role_edit` | `guild_id`, `role_id` | `name`, `color`, `permissions`, `req_id` | Edit role properties |
 
 ### DMs
 
@@ -273,6 +302,28 @@ Streaming lets you progressively update a single message, similar to how ChatGPT
 | `message_search` | `channel_id` | `query`, `author`, `limit`, `req_id` | Search messages by content or author |
 | `message_pin` | `channel_id`, `message_id` | `req_id` | Pin a message |
 | `message_unpin` | `channel_id`, `message_id` | `req_id` | Unpin a message |
+| `message_bulk_delete` | `channel_id`, `message_ids` | `req_id` | Delete multiple messages at once (2-100, max 14 days old) |
+
+### Reactions (extended)
+
+| Action | Required Fields | Optional Fields | Description |
+|---|---|---|---|
+| `reaction_users` | `channel_id`, `message_id`, `emoji` | `limit`, `req_id` | List users who reacted with a specific emoji |
+
+### Webhooks
+
+| Action | Required Fields | Optional Fields | Description |
+|---|---|---|---|
+| `webhook_list` | `channel_id` | `req_id` | List webhooks for a channel |
+| `webhook_create` | `channel_id`, `name` | `avatar`, `req_id` | Create a webhook |
+| `webhook_delete` | `webhook_id` | `req_id` | Delete a webhook |
+
+### Scheduled events
+
+| Action | Required Fields | Optional Fields | Description |
+|---|---|---|---|
+| `event_list` | `guild_id` | `req_id` | List scheduled events |
+| `event_create` | `guild_id`, `name`, `start_time` | `end_time`, `description`, `channel_id`, `location`, `req_id` | Create a scheduled event |
 
 ### Server
 
@@ -339,7 +390,11 @@ discli serve --channel "#general"
 discli serve --no-include-self
 ```
 
-Available event filter values: `messages`, `reactions`, `members`, `edits`, `deletes`.
+Available event filter values: `messages`, `reactions`, `members`, `edits`, `deletes`, `voice`, `interactions`.
+
+<Callout type="note">
+  The protocol currently supports **54 actions** and **17 event types**. See the [Serve Actions](/reference/serve-actions) and [Serve Events](/reference/serve-events) references for the complete list.
+</Callout>
 
 ## Slash command registration
 

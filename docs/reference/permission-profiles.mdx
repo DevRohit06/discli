@@ -43,10 +43,14 @@ Messages, reactions, threads, typing, DMs, listening, serving, config, and serve
     "member kick",
     "member ban",
     "member unban",
+    "member timeout",
     "channel delete",
     "role delete",
     "role create",
-    "channel create"
+    "channel create",
+    "message bulk-delete",
+    "webhook delete",
+    "event delete"
   ]
 }
 ```
@@ -105,7 +109,7 @@ Output (plain text):
 Active profile: chat
 Description: Messages, reactions, threads, typing only
 Allowed: message, reaction, thread, typing, dm, listen, serve, config, server
-Denied: member kick, member ban, member unban, channel delete, role delete, role create, channel create
+Denied: member kick, member ban, member unban, member timeout, channel delete, role delete, role create, channel create, message bulk-delete, webhook delete, event delete
 ```
 
 With `--json`:
@@ -115,7 +119,7 @@ With `--json`:
   "active_profile": "chat",
   "description": "Messages, reactions, threads, typing only",
   "allowed": ["message", "reaction", "thread", "typing", "dm", "listen", "serve", "config", "server"],
-  "denied": ["member kick", "member ban", "member unban", "channel delete", "role delete", "role create", "channel create"]
+  "denied": ["member kick", "member ban", "member unban", "member timeout", "channel delete", "role delete", "role create", "channel create", "message bulk-delete", "webhook delete", "event delete"]
 }
 ```
 
@@ -211,6 +215,23 @@ Patterns are matched by checking if the full command path equals the pattern or 
 
 ---
 
+## Discord Permission Mapping
+
+Some commands require the bot to have specific Discord permissions in the server. The following table maps discli commands to their required Discord permissions:
+
+| Command | Discord Permission |
+|---------|-------------------|
+| `member kick` | `kick_members` |
+| `member ban` / `member unban` | `ban_members` |
+| `member timeout` | `moderate_members` |
+| `message delete` / `message bulk-delete` | `manage_messages` |
+| `channel create` / `channel delete` / `channel edit` | `manage_channels` |
+| `role create` / `role delete` / `role edit` | `manage_roles` |
+| `webhook create` / `webhook delete` | `manage_webhooks` |
+| `event create` / `event delete` | `manage_events` |
+
+---
+
 ## Destructive Command Protection
 
 Independently of permission profiles, the following commands require interactive confirmation before execution:
@@ -218,8 +239,12 @@ Independently of permission profiles, the following commands require interactive
 - `member kick`
 - `member ban`
 - `member unban`
+- `member timeout`
 - `channel delete`
 - `message delete`
+- `message bulk-delete`
 - `role delete`
+- `webhook delete`
+- `event delete`
 
 Use the `--yes` / `-y` global flag to skip confirmation prompts (e.g., in scripted or agent-driven usage). Destructive actions are logged to the audit log at `~/.discli/audit.log`.

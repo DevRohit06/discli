@@ -794,6 +794,64 @@ if __name__ == "__main__":
 
 ---
 
+## AI Serve Agent (`ai_serve_agent.py`)
+
+Beyond the five levels above, discli ships with an example AI-powered agent that combines Claude (via the Anthropic Agent SDK) with `discli serve`. This is the recommended architecture for building intelligent Discord agents.
+
+### Architecture
+
+The AI serve agent uses a two-layer approach:
+
+1. **Claude Agent SDK** provides the reasoning and decision-making layer
+2. **`discli serve`** provides the persistent Discord connection via JSONL
+3. **Bash tool calls** let Claude execute discli CLI commands for most operations (send messages, manage channels, list members, etc.)
+4. **Component blocks** let Claude declare rich UI elements inline
+
+Claude reads events from `discli serve` stdout and decides how to respond. For standard actions, it runs CLI commands through Bash. For interactive UI elements like buttons, select menus, and modals, it uses fenced component blocks.
+
+### Component blocks
+
+The agent uses a special fenced code block syntax to declare message components:
+
+````
+```component
+{
+  "channel_id": "444555666",
+  "content": "Choose an action:",
+  "components": [
+    {
+      "type": "action_row",
+      "components": [
+        {"type": "button", "style": "primary", "label": "Approve", "custom_id": "approve"},
+        {"type": "button", "style": "danger", "label": "Reject", "custom_id": "reject"}
+      ]
+    }
+  ]
+}
+```
+````
+
+The agent framework parses these blocks and sends them as JSONL actions to `discli serve`.
+
+### Modal registry pattern
+
+Modals require a two-step flow: first you send the modal to the user (`modal_send`), then you handle their submission (`modal_submit` event). The agent maintains a modal registry that maps `custom_id` values to handler functions, so when a `modal_submit` event arrives, the agent knows which handler to invoke.
+
+### Example test messages
+
+Try these messages to exercise the agent's capabilities:
+
+- `@bot send a poll about favorite languages` -- creates a poll with buttons
+- `@bot show me server info` -- runs `discli server info` via Bash
+- `@bot create a feedback form` -- opens a modal dialog
+- `@bot set up a welcome channel` -- orchestrates channel creation and permissions
+
+### Running the example
+
+See [`agents/ai_serve_agent.py`](/agents/ai_serve_agent.py) for the full implementation. The agent requires the `anthropic` Python package and a valid `ANTHROPIC_API_KEY` environment variable.
+
+---
+
 ## Choosing Your Level
 
 <CardGroup cols={2}>

@@ -51,7 +51,9 @@
           { "label": "Streaming Responses", "href": "/guides/streaming-responses" },
           { "label": "Slash Commands", "href": "/guides/slash-commands" },
           { "label": "Security & Permissions", "href": "/guides/security-permissions" },
-          { "label": "Scripting & Automation", "href": "/guides/scripting-automation" }
+          { "label": "Scripting & Automation", "href": "/guides/scripting-automation" },
+          { "label": "Components & Modals", "href": "/guides/components-modals" },
+          { "label": "AI Agent", "href": "/guides/ai-agent" }
         ]
       },
       {
@@ -61,7 +63,8 @@
           { "label": "Moderation Bot", "href": "/use-cases/moderation-bot" },
           { "label": "Thread-Based Support", "href": "/use-cases/thread-based-support" },
           { "label": "Channel Logger", "href": "/use-cases/channel-logger" },
-          { "label": "CI Notifications", "href": "/use-cases/ci-notifications" }
+          { "label": "CI Notifications", "href": "/use-cases/ci-notifications" },
+          { "label": "AI Serve Agent", "href": "/use-cases/ai-serve-agent" }
         ]
       },
       {
@@ -97,7 +100,8 @@
           { "label": "CLI Commands", "href": "/reference/cli-commands" },
           { "label": "Serve Actions", "href": "/reference/serve-actions" },
           { "label": "Serve Events", "href": "/reference/serve-events" },
-          { "label": "Permission Profiles", "href": "/reference/permission-profiles" }
+          { "label": "Permission Profiles", "href": "/reference/permission-profiles" },
+          { "label": "Component Types", "href": "/reference/component-types" }
         ]
       }
     ]

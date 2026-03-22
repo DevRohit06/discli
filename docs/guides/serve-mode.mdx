@@ -15,7 +15,7 @@ Standard discli commands are fire-and-forget: each one connects to Discord, perf
 - Handle slash commands
 - Perform multiple actions without reconnecting
 
-Serve mode solves this by maintaining a single persistent Discord WebSocket connection and exposing it through JSONL over stdin/stdout.
+Serve mode solves this by maintaining a single persistent Discord WebSocket connection and exposing it through JSONL over stdin/stdout. The protocol currently supports **54 actions** and **17 event types**.
 
 ```
 ┌──────────────┐    stdin (JSONL)     ┌──────────────────┐
@@ -210,6 +210,75 @@ Emitted when a user invokes a registered slash command.
 ```
 </Accordion>
 
+<Accordion title="component_interaction">
+Emitted when a user clicks a button or selects an option from a select menu.
+
+```json
+{
+  "event": "component_interaction",
+  "custom_id": "approve_btn",
+  "component_type": "button",
+  "channel_id": "444555666",
+  "message_id": "101010101010",
+  "user": "alice#1234",
+  "user_id": "777888999",
+  "guild_id": "111222333",
+  "interaction_token": "abc-123-def",
+  "values": []
+}
+```
+
+For select menus, `values` contains the selected option values.
+</Accordion>
+
+<Accordion title="modal_submit">
+Emitted when a user submits a modal form.
+
+```json
+{
+  "event": "modal_submit",
+  "custom_id": "feedback_modal",
+  "channel_id": "444555666",
+  "user": "alice#1234",
+  "user_id": "777888999",
+  "guild_id": "111222333",
+  "interaction_token": "abc-123-def",
+  "fields": {
+    "title": "Bug Report",
+    "description": "The button doesn't work"
+  }
+}
+```
+</Accordion>
+
+<Accordion title="voice_state_update">
+Emitted when a member joins, leaves, or moves between voice channels.
+
+```json
+{
+  "event": "voice_state_update",
+  "server": "My Server",
+  "server_id": "111222333",
+  "member": "alice#1234",
+  "member_id": "777888999",
+  "channel_id": "444555666",
+  "channel": "Voice Chat",
+  "action": "join"
+}
+```
+
+The `action` field is one of `join`, `leave`, or `move`.
+</Accordion>
+
+<Accordion title="disconnect / resume">
+Emitted when the bot disconnects from or reconnects to the Discord gateway.
+
+```json
+{"event": "disconnect", "code": 1001, "reason": "Going away"}
+{"event": "resume", "replayed": 5}
+```
+</Accordion>
+
 <Accordion title="response">
 Returned after your agent sends an action via stdin. Correlates via `req_id`.
 
@@ -251,10 +320,11 @@ The optional `req_id` field lets you correlate responses. If you include it, the
 
 | Action | Required Fields | Optional Fields |
 |--------|----------------|----------------|
-| `send` | `channel_id`, `content` | `files`, `req_id` |
-| `reply` | `channel_id`, `message_id`, `content` | `files`, `req_id` |
-| `edit` | `channel_id`, `message_id`, `content` | `req_id` |
+| `send` | `channel_id`, `content` | `embed`, `components`, `files`, `req_id` |
+| `reply` | `channel_id`, `message_id`, `content` | `embed`, `components`, `files`, `req_id` |
+| `edit` | `channel_id`, `message_id`, `content` | `components`, `req_id` |
 | `delete` | `channel_id`, `message_id` | `req_id` |
+| `bulk_delete` | `channel_id`, `message_ids` | `req_id` |
 | `dm_send` | `user_id`, `content` | `req_id` |
 
 ```json
@@ -262,7 +332,24 @@ The optional `req_id` field lets you correlate responses. If you include it, the
 {"action": "reply", "channel_id": "444555666", "message_id": "101010", "content": "Got it!"}
 {"action": "edit", "channel_id": "444555666", "message_id": "131415", "content": "Updated text"}
 {"action": "delete", "channel_id": "444555666", "message_id": "131415"}
+{"action": "bulk_delete", "channel_id": "444555666", "message_ids": ["111", "222", "333"]}
 {"action": "dm_send", "user_id": "777888999", "content": "Hey there!"}
+```
+
+**Rich embeds:** Include an `embed` object on `send` or `reply` actions:
+
+```json
+{"action": "send", "channel_id": "444555666", "content": "", "embed": {"title": "Status", "description": "All systems go", "color": 5865F2, "footer": {"text": "Updated now"}, "fields": [{"name": "Uptime", "value": "99.9%", "inline": true}]}}
+```
+
+**Message components:** Include a `components` array to attach buttons and select menus:
+
+```json
+{"action": "send", "channel_id": "444555666", "content": "Pick an option:", "components": [{"type": "action_row", "components": [{"type": "button", "style": "primary", "label": "Approve", "custom_id": "approve_btn"}, {"type": "button", "style": "danger", "label": "Reject", "custom_id": "reject_btn"}]}]}
+```
+
+```json
+{"action": "send", "channel_id": "444555666", "content": "Choose a category:", "components": [{"type": "action_row", "components": [{"type": "select", "custom_id": "category_select", "placeholder": "Select...", "options": [{"label": "Bug", "value": "bug"}, {"label": "Feature", "value": "feature"}]}]}]}
 ```
 
 </Tab>
@@ -289,11 +376,21 @@ The optional `req_id` field lets you correlate responses. If you include it, the
 | `thread_create` | `channel_id`, `name` | `message_id`, `content`, `auto_archive_duration`, `req_id` |
 | `thread_send` | `thread_id`, `content` | `files`, `req_id` |
 | `thread_list` | `channel_id` | `req_id` |
+| `thread_archive` | `thread_id` | `req_id` |
+| `thread_unarchive` | `thread_id` | `req_id` |
+| `thread_rename` | `thread_id`, `name` | `req_id` |
+| `thread_add_member` | `thread_id`, `member_id` | `req_id` |
+| `thread_remove_member` | `thread_id`, `member_id` | `req_id` |
 
 ```json
 {"action": "thread_create", "channel_id": "444555666", "name": "Discussion", "content": "Let's talk"}
 {"action": "thread_send", "thread_id": "999000111", "content": "Replying in thread"}
 {"action": "thread_list", "channel_id": "444555666"}
+{"action": "thread_archive", "thread_id": "999000111"}
+{"action": "thread_unarchive", "thread_id": "999000111"}
+{"action": "thread_rename", "thread_id": "999000111", "name": "Renamed Thread"}
+{"action": "thread_add_member", "thread_id": "999000111", "member_id": "777888999"}
+{"action": "thread_remove_member", "thread_id": "999000111", "member_id": "777888999"}
 ```
 
 </Tab>
@@ -303,12 +400,14 @@ The optional `req_id` field lets you correlate responses. If you include it, the
 |--------|----------------|----------------|
 | `reaction_add` | `channel_id`, `message_id`, `emoji` | `req_id` |
 | `reaction_remove` | `channel_id`, `message_id`, `emoji` | `req_id` |
+| `reaction_users` | `channel_id`, `message_id`, `emoji` | `req_id` |
 | `typing_start` | `channel_id` | `req_id` |
 | `typing_stop` | `channel_id` | `req_id` |
 
 ```json
 {"action": "typing_start", "channel_id": "444555666"}
 {"action": "reaction_add", "channel_id": "444555666", "message_id": "101010", "emoji": "👍"}
+{"action": "reaction_users", "channel_id": "444555666", "message_id": "101010", "emoji": "👍"}
 {"action": "typing_stop", "channel_id": "444555666"}
 ```
 
@@ -324,14 +423,25 @@ The optional `req_id` field lets you correlate responses. If you include it, the
 | `message_unpin` | `channel_id`, `message_id` | `req_id` |
 | `channel_list` | | `guild_id`, `req_id` |
 | `channel_info` | `channel_id` | `req_id` |
-| `channel_create` | `guild_id`, `name` | `type`, `req_id` |
+| `channel_create` | `guild_id`, `name` | `type`, `topic`, `req_id` |
+| `channel_edit` | `channel_id` | `topic`, `slowmode`, `name`, `req_id` |
+| `channel_set_permissions` | `channel_id`, `target` | `allow`, `deny`, `req_id` |
+| `channel_forum_post` | `channel_id`, `title`, `content` | `req_id` |
 | `server_list` | | `req_id` |
 | `server_info` | `guild_id` | `req_id` |
 | `member_list` | `guild_id` | `limit`, `req_id` |
 | `member_info` | `guild_id`, `member_id` | `req_id` |
+| `member_timeout` | `guild_id`, `member_id`, `duration` | `reason`, `req_id` |
 | `role_list` | `guild_id` | `req_id` |
 | `role_assign` | `guild_id`, `member_id`, `role_id` | `req_id` |
 | `role_remove` | `guild_id`, `member_id`, `role_id` | `req_id` |
+| `role_edit` | `guild_id`, `role_id` | `name`, `color`, `hoist`, `mentionable`, `req_id` |
+| `webhook_list` | `channel_id` | `req_id` |
+| `webhook_create` | `channel_id`, `name` | `req_id` |
+| `webhook_delete` | `webhook_id` | `req_id` |
+| `event_list` | `guild_id` | `req_id` |
+| `event_create` | `guild_id`, `name`, `start` | `end`, `description`, `req_id` |
+| `event_delete` | `guild_id`, `event_id` | `req_id` |
 
 </Tab>
 <Tab title="Other">
@@ -339,13 +449,23 @@ The optional `req_id` field lets you correlate responses. If you include it, the
 | Action | Required Fields | Optional Fields |
 |--------|----------------|----------------|
 | `presence` | | `status`, `activity_type`, `activity_text`, `req_id` |
-| `interaction_followup` | `interaction_token`, `content` | `req_id` |
+| `interaction_followup` | `interaction_token`, `content` | `embed`, `components`, `req_id` |
+| `interaction_respond` | `interaction_token`, `content` | `ephemeral`, `req_id` |
+| `interaction_edit` | `interaction_token`, `content` | `components`, `req_id` |
+| `modal_send` | `interaction_token`, `custom_id`, `title`, `fields` | `req_id` |
 | `poll_send` | `channel_id`, `question`, `answers` | `duration_hours`, `multiple`, `content`, `req_id` |
+| `poll_results` | `channel_id`, `message_id` | `req_id` |
+| `poll_end` | `channel_id`, `message_id` | `req_id` |
 
 ```json
 {"action": "presence", "status": "dnd", "activity_type": "watching", "activity_text": "for issues"}
 {"action": "interaction_followup", "interaction_token": "abc-123", "content": "Here's your answer!"}
+{"action": "interaction_respond", "interaction_token": "abc-123", "content": "Only you see this", "ephemeral": true}
+{"action": "interaction_edit", "interaction_token": "abc-123", "content": "Updated!", "components": []}
+{"action": "modal_send", "interaction_token": "abc-123", "custom_id": "feedback_modal", "title": "Feedback", "fields": [{"label": "Title", "custom_id": "title", "style": "short"}, {"label": "Details", "custom_id": "details", "style": "long"}]}
 {"action": "poll_send", "channel_id": "444555666", "question": "Best language?", "answers": ["Python", "Rust", "Go"]}
+{"action": "poll_results", "channel_id": "444555666", "message_id": "101010"}
+{"action": "poll_end", "channel_id": "444555666", "message_id": "101010"}
 ```
 
 </Tab>

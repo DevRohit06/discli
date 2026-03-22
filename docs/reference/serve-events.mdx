@@ -291,6 +291,101 @@ Emitted when a member leaves or is removed from a server.
 
 ---
 
+## voice_state
+
+Emitted when a member's voice state changes (joins, leaves, moves between, or updates settings in a voice channel).
+
+```json
+{
+  "event": "voice_state",
+  "action": "joined",
+  "member": "alice",
+  "channel": "General Voice",
+  "channel_id": "789012"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `action` | string | One of `joined`, `left`, `moved`, or `updated` |
+| `member` | string | Member's username |
+| `channel` | string | Voice channel name |
+| `channel_id` | string | Voice channel snowflake ID |
+
+---
+
+## component_interaction
+
+Emitted when a user interacts with a message component (button click, select menu choice). Respond using `interaction_respond`, `interaction_edit`, or `modal_send` with the `interaction_token`.
+
+```json
+{
+  "event": "component_interaction",
+  "custom_id": "ok",
+  "component_type": 2,
+  "values": [],
+  "user": "alice",
+  "interaction_token": "uuid-string"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `custom_id` | string | The `custom_id` set on the component |
+| `component_type` | integer | Component type (`2` = button, `3` = select menu) |
+| `values` | array | Selected values (empty for buttons, populated for select menus) |
+| `user` | string | Username of the interacting user |
+| `interaction_token` | string | Token for responding to the interaction |
+
+---
+
+## modal_submit
+
+Emitted when a user submits a modal form. Respond using `interaction_respond` or `interaction_edit` with the `interaction_token`.
+
+```json
+{
+  "event": "modal_submit",
+  "custom_id": "feedback-form",
+  "fields": {"name": "Alice", "message": "Great bot!"},
+  "user": "alice",
+  "interaction_token": "uuid-string"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `custom_id` | string | The `custom_id` set on the modal |
+| `fields` | object | Key-value map of field `custom_id` to submitted value |
+| `user` | string | Username of the submitting user |
+| `interaction_token` | string | Token for responding to the submission |
+
+---
+
+## disconnected
+
+Emitted when the bot loses its connection to the Discord gateway.
+
+```json
+{"event": "disconnected"}
+```
+
+No additional fields.
+
+---
+
+## resumed
+
+Emitted when the bot successfully reconnects to the Discord gateway after a disconnection.
+
+```json
+{"event": "resumed"}
+```
+
+No additional fields.
+
+---
+
 ## response
 
 Emitted as the reply to every stdin action. Contains `"ok": true` on success or an `"error"` string on failure. If the original action included a `req_id`, it is echoed back.
@@ -349,8 +444,9 @@ Use the `--events` option to limit which events are emitted. Pass a comma-separa
 | `deletes` | `message_delete` |
 | `reactions` | `reaction_add`, `reaction_remove` |
 | `members` | `member_join`, `member_remove` |
+| `voice` | `voice_state` |
 
-The `ready`, `slash_command`, `slash_commands_synced`, `response`, `error`, and `shutdown` events are always emitted regardless of the filter.
+The `ready`, `slash_command`, `slash_commands_synced`, `component_interaction`, `modal_submit`, `response`, `error`, `disconnected`, `resumed`, and `shutdown` events are always emitted regardless of the filter.
 
 Example:
 

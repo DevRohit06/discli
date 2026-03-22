@@ -66,17 +66,37 @@ response = my_rules_engine(event)  # no AI needed
 </Accordion>
 
 <Accordion title="How do I add embeds, buttons, or select menus?">
-**Text-only for now.** discli currently supports sending and receiving text messages through the JSONL serve protocol. Rich embeds, buttons, select menus, and modals are not yet supported in serve mode.
+**Embeds are fully supported** in both CLI and serve mode. **Components (buttons, select menus, modals) are serve-mode only.**
 
-For **CLI usage**, basic embeds are supported:
+For **CLI usage**, rich embeds are supported via flags:
 
 ```bash
 discli message send "#announcements" "New release!" \
   --embed-title "v2.1.0" \
-  --embed-desc "Bug fixes and performance improvements"
+  --embed-desc "Bug fixes and performance improvements" \
+  --embed-color "5865F2" \
+  --embed-footer "Released today" \
+  --embed-image "https://example.com/banner.png" \
+  --embed-thumbnail "https://example.com/icon.png" \
+  --embed-author "Release Bot" \
+  --embed-field "Changes" "Bug fixes and perf improvements"
 ```
 
-Full component support (buttons, select menus, modals) in both CLI and serve mode is planned for a future release.
+Available embed flags: `--embed-title`, `--embed-desc`, `--embed-color`, `--embed-footer`, `--embed-image`, `--embed-thumbnail`, `--embed-author`, `--embed-field`.
+
+For **serve mode**, full embeds are supported via JSON in the `embed` field, plus interactive components:
+
+- **Buttons** — primary, secondary, success, danger, and link styles
+- **Select menus** — string select, user select, role select, and channel select
+- **Modal forms** — popup forms with short and long text inputs
+
+```json
+{"action": "send", "channel_id": "456", "content": "Pick:", "embed": {"title": "Choose", "color": "5865F2"}, "components": [
+  [{"type": "button", "label": "Yes", "style": "success", "custom_id": "yes"}]
+]}
+```
+
+Components (buttons, select menus, modals) are **serve-mode only** — they are not available via the CLI. See [Components & Modals](/guides/components-modals) for the full guide.
 </Accordion>
 
 <Accordion title="What permissions does my bot need?">
