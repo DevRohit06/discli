@@ -116,6 +116,8 @@ Every command supports `--json` for machine-readable output.
 ```bash
 discli message send #general "Hello world!"
 discli message send #general "Check this out" --embed-title "News" --embed-desc "Big update"
+discli message send #general "Alert" --embed-color ff0000 --embed-footer "Footer" --embed-field "Name::Value::true"
+discli message bulk-delete #general 111 222 333
 discli message send #general "Here's the report" --file report.pdf
 discli message send #general "Screenshots" --file bug.png --file logs.txt
 discli message list #general --limit 20
@@ -153,6 +155,7 @@ discli dm list alice --limit 10
 discli reaction add #general 123456789 👍
 discli reaction remove #general 123456789 👍
 discli reaction list #general 123456789
+discli reaction users #general 123456789 👍 --limit 100
 ```
 
 ### Channels
@@ -162,6 +165,10 @@ discli channel list --server "My Server"
 discli channel create "My Server" new-channel --type text
 discli channel create "My Server" voice-room --type voice
 discli channel info #general
+discli channel edit #general --name new-name --topic "New topic" --slowmode 10
+discli channel create "My Server" "forum-name" --type forum --topic "Forum topic"
+discli channel forum-post #forum-channel "Post Title" "Post content"
+discli channel set-permissions #general @Moderator --allow send_messages,read_messages --deny manage_messages --target-type role
 discli channel delete #old-channel
 ```
 
@@ -172,6 +179,11 @@ discli thread create #general 123456789 "Support Ticket"
 discli thread list #general
 discli thread send 987654321 "Following up on your issue"
 discli thread send 987654321 "Attached the logs" --file debug.log
+discli thread archive 987654321
+discli thread unarchive 987654321
+discli thread rename 987654321 "New Thread Name"
+discli thread add-member 987654321 123456789
+discli thread remove-member 987654321 123456789
 ```
 
 ### Servers
@@ -188,6 +200,7 @@ discli role list "My Server"
 discli role create "My Server" Moderator --color ff0000
 discli role assign "My Server" alice Moderator
 discli role remove "My Server" alice Moderator
+discli role edit "My Server" Moderator --name "Senior Mod" --color 00ff00 --hoist --mentionable
 discli role delete "My Server" Moderator
 ```
 
@@ -199,6 +212,32 @@ discli member info "My Server" alice
 discli member kick "My Server" alice --reason "Spam"
 discli member ban "My Server" alice --reason "Repeated violations"
 discli member unban "My Server" alice
+discli member timeout "My Server" alice 3600 --reason "Spam"
+discli member timeout "My Server" alice 0    # remove timeout
+```
+
+### Polls
+
+```bash
+discli poll results #general 123456789
+discli poll end #general 123456789
+```
+
+### Webhooks
+
+```bash
+discli webhook list #general
+discli webhook create #general "my-webhook"
+discli webhook delete #general 123456789
+```
+
+### Events
+
+```bash
+discli event list "My Server"
+discli event create "My Server" "Game Night" "2026-04-01T18:00:00" --location "Park" --end-time "2026-04-01T20:00:00"
+discli event create "My Server" "Voice Hangout" "2026-04-01T18:00:00" --channel #voice-room
+discli event delete "My Server" 123456789
 ```
 
 ### Typing Indicator
@@ -218,7 +257,7 @@ discli listen
 discli listen --server "My Server" --channel #general
 
 # Filter by event type
-discli listen --events messages,reactions
+discli listen --events messages,reactions,voice
 
 # Include bot messages (ignored by default)
 discli listen --include-bots
@@ -227,7 +266,7 @@ discli listen --include-bots
 discli --json listen --events messages
 ```
 
-Supported event types: `messages`, `reactions`, `members`, `edits`, `deletes`
+Supported event types: `messages`, `reactions`, `members`, `edits`, `deletes`, `voice`
 
 ### Persistent Bot (serve)
 
@@ -246,15 +285,24 @@ discli serve --server "My Server"
 {"event": "ready", "bot_id": "123", "bot_name": "MyBot#1234"}
 {"event": "message", "channel_id": "456", "author": "alice", "content": "hello", "mentions_bot": true, ...}
 {"event": "slash_command", "command": "paw", "args": {"message": "hi"}, "interaction_token": "abc123", ...}
+{"event": "voice_state", "action": "joined", "member": "alice", "channel": "General", "channel_id": "456"}
+{"event": "component_interaction", "custom_id": "ok_btn", "user": "alice", "interaction_token": "itk"}
+{"event": "modal_submit", "custom_id": "myform", "fields": {"name": "Alice"}, "interaction_token": "itk"}
 ```
 
 **Commands (stdin):**
 ```json
 {"action": "send", "channel_id": "456", "content": "Hello!", "req_id": "1"}
+{"action": "send", "channel_id": "456", "content": "Rich!", "embed": {"title": "T", "description": "D", "color": "ff0000"}}
+{"action": "send", "channel_id": "456", "content": "Click!", "components": [[{"type": "button", "label": "OK", "style": "primary", "custom_id": "ok_btn"}]]}
 {"action": "reply", "channel_id": "456", "message_id": "789", "content": "Hi!", "req_id": "2"}
 {"action": "typing_start", "channel_id": "456"}
 {"action": "typing_stop", "channel_id": "456"}
 {"action": "presence", "status": "idle", "activity_type": "watching", "activity_text": "the logs"}
+{"action": "channel_edit", "channel_id": "456", "topic": "New topic", "slowmode": 10}
+{"action": "forum_post", "channel_id": "456", "title": "Post Title", "content": "Body"}
+{"action": "webhook_create", "channel_id": "456", "name": "My Webhook"}
+{"action": "event_create", "guild_id": "111", "name": "Hangout", "start_time": "2026-04-01T18:00:00"}
 ```
 
 **Streaming edits** (bot response builds in real-time, edited every 1.5s):
