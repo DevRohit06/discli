@@ -175,6 +175,27 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
                         options=options,
                     )
                     view.add_item(select)
+                elif item["type"] == "user_select":
+                    view.add_item(discord.ui.UserSelect(
+                        custom_id=item.get("custom_id", str(uuid.uuid4())[:8]),
+                        placeholder=item.get("placeholder"),
+                        min_values=item.get("min_values", 1),
+                        max_values=item.get("max_values", 1),
+                    ))
+                elif item["type"] == "role_select":
+                    view.add_item(discord.ui.RoleSelect(
+                        custom_id=item.get("custom_id", str(uuid.uuid4())[:8]),
+                        placeholder=item.get("placeholder"),
+                        min_values=item.get("min_values", 1),
+                        max_values=item.get("max_values", 1),
+                    ))
+                elif item["type"] == "channel_select":
+                    view.add_item(discord.ui.ChannelSelect(
+                        custom_id=item.get("custom_id", str(uuid.uuid4())[:8]),
+                        placeholder=item.get("placeholder"),
+                        min_values=item.get("min_values", 1),
+                        max_values=item.get("max_values", 1),
+                    ))
         return view
 
     # ── Discord Events → stdout ─────────────────────────────────────
@@ -382,7 +403,17 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             data = interaction.data
             itk = str(uuid.uuid4())
             interactions[itk] = interaction
-            await interaction.response.defer()
+            # Don't defer here — let the agent choose: interaction_respond,
+            # interaction_edit, interaction_followup, or modal_send.
+            # Auto-defer after 2.5s if no response to avoid Discord timeout.
+            async def _auto_defer():
+                await asyncio.sleep(2.5)
+                if itk in interactions and not interaction.response.is_done():
+                    try:
+                        await interaction.response.defer()
+                    except discord.HTTPException:
+                        pass
+            asyncio.create_task(_auto_defer())
             emit({
                 "event": "component_interaction",
                 "custom_id": data.get("custom_id"),
@@ -399,6 +430,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             data = interaction.data
             itk = str(uuid.uuid4())
             interactions[itk] = interaction
+            await interaction.response.defer()
             fields = {}
             for comp in data.get("components", []):
                 for inner in comp.get("components", []):
@@ -804,17 +836,87 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True}
 
     async def _action_interaction_followup(cmd: dict) -> dict:
+        """Send a followup message to an interaction (visible to everyone)."""
         itk = cmd.get("interaction_token")
         interaction = interactions.get(itk)
         if not interaction:
             return {"error": f"Unknown interaction: {itk}"}
+        # Ensure deferred first
+        if not interaction.response.is_done():
+            await interaction.response.defer()
+        kwargs = {}
         content = cmd.get("content", "")
+        if content:
+            kwargs["content"] = content
+        if "embed" in cmd:
+            kwargs["embed"] = _build_embed(cmd["embed"])
+        if "components" in cmd:
+            kwargs["view"] = _build_view(cmd["components"])
+        if cmd.get("ephemeral"):
+            kwargs["ephemeral"] = True
         try:
-            await interaction.followup.send(content)
+            msg = await interaction.followup.send(**kwargs)
+            result = {"ok": True}
+            if hasattr(msg, "id"):
+                result["message_id"] = str(msg.id)
+            return result
         except discord.HTTPException as e:
             return {"error": f"Followup failed: {e}"}
-        interactions.pop(itk, None)
-        return {"ok": True}
+        finally:
+            if not cmd.get("keep_token"):
+                interactions.pop(itk, None)
+
+    async def _action_interaction_respond(cmd: dict) -> dict:
+        """Send an immediate response to an interaction (before defer)."""
+        itk = cmd.get("interaction_token")
+        interaction = interactions.get(itk)
+        if not interaction:
+            return {"error": f"Unknown interaction: {itk}"}
+        if interaction.response.is_done():
+            return {"error": "Interaction already responded to — use interaction_followup instead"}
+        kwargs = {}
+        content = cmd.get("content", "")
+        if content:
+            kwargs["content"] = content
+        if "embed" in cmd:
+            kwargs["embed"] = _build_embed(cmd["embed"])
+        if "components" in cmd:
+            kwargs["view"] = _build_view(cmd["components"])
+        if cmd.get("ephemeral"):
+            kwargs["ephemeral"] = True
+        try:
+            await interaction.response.send_message(**kwargs)
+            return {"ok": True}
+        except discord.HTTPException as e:
+            return {"error": f"Respond failed: {e}"}
+        finally:
+            if not cmd.get("keep_token"):
+                interactions.pop(itk, None)
+
+    async def _action_interaction_edit(cmd: dict) -> dict:
+        """Edit the original message of an interaction (e.g., update buttons)."""
+        itk = cmd.get("interaction_token")
+        interaction = interactions.get(itk)
+        if not interaction:
+            return {"error": f"Unknown interaction: {itk}"}
+        # Ensure deferred first
+        if not interaction.response.is_done():
+            await interaction.response.defer()
+        kwargs = {}
+        if "content" in cmd:
+            kwargs["content"] = cmd["content"]
+        if "embed" in cmd:
+            kwargs["embed"] = _build_embed(cmd["embed"])
+        if "components" in cmd:
+            kwargs["view"] = _build_view(cmd["components"])
+        try:
+            await interaction.edit_original_response(**kwargs)
+            return {"ok": True}
+        except discord.HTTPException as e:
+            return {"error": f"Edit failed: {e}"}
+        finally:
+            if not cmd.get("keep_token"):
+                interactions.pop(itk, None)
 
     async def _action_thread_create(cmd: dict) -> dict:
         channel_id = cmd.get("channel_id")
@@ -1565,6 +1667,8 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         "stream_end": _handle_stream_end,
         # Interactions
         "interaction_followup": _action_interaction_followup,
+        "interaction_respond": _action_interaction_respond,
+        "interaction_edit": _action_interaction_edit,
         "modal_send": _action_modal_send,
         # Typing & presence
         "typing_start": _action_typing_start,
