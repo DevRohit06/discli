@@ -16,9 +16,13 @@ DESTRUCTIVE_COMMANDS = {
     "member kick",
     "member ban",
     "member unban",
+    "member timeout",
     "channel delete",
     "message delete",
     "role delete",
+    "webhook delete",
+    "event delete",
+    "message bulk-delete",
 }
 
 # Default permission profiles
@@ -205,6 +209,7 @@ async def check_user_permission(guild, user_id: int, required_permission: str) -
         "manage_channels": "manage_channels",
         "manage_roles": "manage_roles",
         "manage_messages": "manage_messages",
+        "moderate_members": "moderate_members",
     }
 
     perm_attr = perm_map.get(required_permission)
