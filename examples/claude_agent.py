@@ -29,7 +29,7 @@ import claude_agent_sdk as sdk
 
 # Load instructions from file
 INSTRUCTIONS_PATH = Path(__file__).parent.parent / "agents" / "discord-agent.md"
-AGENT_INSTRUCTIONS = INSTRUCTIONS_PATH.read_text()
+AGENT_INSTRUCTIONS = INSTRUCTIONS_PATH.read_text(encoding="utf-8")
 
 SYSTEM_PROMPT = f"""{AGENT_INSTRUCTIONS}
 
