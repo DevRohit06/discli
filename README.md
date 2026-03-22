@@ -425,33 +425,62 @@ $ discli --json listen --events messages
 
 ## Examples
 
-Ready-to-run examples in the [`examples/`](examples/) directory:
+### AI Agent (recommended)
+
+The all-in-one AI agent uses Claude Agent SDK + `discli serve` for full Discord control — messages, embeds, buttons, selects, modals, streaming, channels, roles, and more:
+
+```bash
+pip install discord-cli-agent claude-agent-sdk
+discli config set token YOUR_BOT_TOKEN
+python examples/ai_serve_agent.py
+```
+
+Then @mention the bot in Discord:
+```
+@bot send a blue embed with title "Status" and fields Online=42, Messages=1337
+@bot send 3 buttons: Accept (green), Decline (red), Maybe (grey)
+@bot send a color picker dropdown with Red, Blue, Green
+@bot send a button that opens a feedback form with Name and Message fields
+@bot create a channel called announcements
+@bot list all roles
+@bot create a poll: "Best language?" with Python, Rust, Go
+```
+
+Uses your existing Claude Code authentication. No API key needed.
+
+### All Examples
 
 | Example | Description |
 |---------|-------------|
-| [`serve_bot.py`](examples/serve_bot.py) | Full bot using `discli serve` with streaming responses and slash commands |
-| [`claude_agent.py`](examples/claude_agent.py) | AI support agent powered by Claude Agent SDK with persistent session |
-| [`support_agent.py`](examples/support_agent.py) | Keyword-based support bot that replies to @mentions |
-| [`thread_support_agent.py`](examples/thread_support_agent.py) | Creates a thread per support request and continues conversations inside |
-| [`moderation_bot.py`](examples/moderation_bot.py) | Watches for banned words, warns users, kicks after repeated violations |
-| [`channel_logger.sh`](examples/channel_logger.sh) | Logs all messages from a channel to a JSONL file |
-| [`reaction_poll.sh`](examples/reaction_poll.sh) | Creates a poll with emoji reactions |
+| [`ai_serve_agent.py`](examples/ai_serve_agent.py) | **All-in-one AI agent** — Claude + serve mode, buttons, selects, modals, embeds, streaming |
+| [`component_test_bot.py`](examples/component_test_bot.py) | Interactive component test bot — buttons, selects, modals, embeds, streaming |
+| [`serve_bot.py`](examples/serve_bot.py) | Echo bot using `discli serve` with streaming and slash commands |
+| [`claude_agent.py`](examples/claude_agent.py) | Lightweight AI agent using Claude Agent SDK + `discli listen` |
+| [`moderation_bot.py`](examples/moderation_bot.py) | Keyword filter with warnings and kick escalation |
+| [`support_agent.py`](examples/support_agent.py) | Rule-based support bot that replies to @mentions |
+| [`thread_support_agent.py`](examples/thread_support_agent.py) | Thread-per-ticket support system |
+| [`channel_logger.sh`](examples/channel_logger.sh) | Log messages to JSONL file |
+| [`reaction_poll.sh`](examples/reaction_poll.sh) | Emoji reaction poll |
 
 ### Agent Instructions
 
 The [`agents/discord-agent.md`](agents/discord-agent.md) file contains the full discli command reference for AI agents. Drop it into any agent's system prompt. Works with Claude, OpenAI, LangChain, or any framework.
 
-### Quick start: Claude Agent
+### Claude Code Skills
+
+Install skills for building Discord bots with discli:
 
 ```bash
-pip install discord-cli-agent claude-agent-sdk
-discli config set token YOUR_BOT_TOKEN
-python examples/claude_agent.py
+npx skills add DevRohit06/discli@discord-bot          # Bot scaffolding + JSONL reference
+npx skills add DevRohit06/discli@discord-agent         # AI agent patterns (Claude/OpenAI)
+npx skills add DevRohit06/discli@discord-moderation    # Auto-mod, keyword filtering
+npx skills add DevRohit06/discli@discord-support-bot   # Helpdesk, thread-per-ticket
+npx skills add DevRohit06/discli@discord-welcome       # Onboarding, role buttons
+npx skills add DevRohit06/discli@discord-logger        # Activity logging, analytics
+npx skills add DevRohit06/discli@discord-slash-commands # Slash command generator
 ```
 
-Uses your existing Claude Code authentication. No API key needed.
-
-### Quick start: Bash agent loop
+### Quick start: Bash agent
 
 ```bash
 discli --json listen --events messages | while read -r event; do
@@ -478,6 +507,7 @@ discli/
 │   └── commands/        # Command groups (message, channel, serve, etc.)
 ├── agents/
 │   └── discord-agent.md # Full command reference for AI agents
+├── skills/              # Claude Code skills for skills.sh
 ├── examples/            # Ready-to-run agent examples
 ├── installers/          # curl-friendly install scripts
 ├── tests/               # Unit tests
