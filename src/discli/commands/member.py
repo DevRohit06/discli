@@ -168,3 +168,37 @@ def member_unban(ctx, server, member, triggered_by):
         return _action(client)
 
     run_discord(ctx, action)
+
+
+@member_group.command("timeout")
+@click.argument("server")
+@click.argument("member")
+@click.argument("duration", type=int)
+@click.option("--reason", default=None, help="Reason for timeout.")
+@click.option("--triggered-by", default=None, help="User ID who triggered this action.")
+@click.pass_context
+def member_timeout(ctx, server, member, duration, reason, triggered_by):
+    """Timeout a member for N seconds (max 2419200 = 28 days). Use 0 to remove timeout."""
+    confirm_destructive("member timeout", f"{member} in {server} for {duration}s")
+
+    def action(client):
+        async def _action(client):
+            from datetime import timedelta
+            rate_limiter.wait()
+            guild = resolve_guild(client, server)
+            if triggered_by:
+                from discli.security import check_user_permission
+                await check_user_permission(guild, int(triggered_by), "moderate_members")
+            m = resolve_member(guild, member)
+            name = str(m)
+            if duration == 0:
+                await m.timeout(None, reason=reason)
+                audit_log("member timeout_remove", {"server": server, "member": name}, user=triggered_by or "")
+                output(ctx, {"member": name, "timeout_removed": True}, plain_text=f"Removed timeout from {name}")
+            else:
+                await m.timeout(timedelta(seconds=duration), reason=reason)
+                audit_log("member timeout", {"server": server, "member": name, "duration": duration, "reason": reason}, user=triggered_by or "")
+                output(ctx, {"member": name, "timeout_seconds": duration}, plain_text=f"Timed out {name} for {duration}s")
+        return _action(client)
+
+    run_discord(ctx, action)
