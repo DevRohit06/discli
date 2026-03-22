@@ -15,23 +15,50 @@ def message_group():
 @click.argument("text")
 @click.option("--embed-title", default=None, help="Embed title.")
 @click.option("--embed-desc", default=None, help="Embed description.")
+@click.option("--embed-color", default=None, help="Embed color (hex like ff0000).")
+@click.option("--embed-footer", default=None, help="Embed footer text.")
+@click.option("--embed-image", default=None, help="Embed image URL.")
+@click.option("--embed-thumbnail", default=None, help="Embed thumbnail URL.")
+@click.option("--embed-author", default=None, help="Embed author name.")
+@click.option("--embed-field", multiple=True, help="Embed field (repeatable, format 'Name::Value::Inline').")
 @click.option("--file", "files", multiple=True, type=click.Path(exists=True), help="File to attach (repeatable).")
 @click.pass_context
-def message_send(ctx, channel, text, embed_title, embed_desc, files):
+def message_send(ctx, channel, text, embed_title, embed_desc, embed_color, embed_footer, embed_image, embed_thumbnail, embed_author, embed_field, files):
     """Send a message to a channel."""
 
     def action(client):
         async def _action(client):
             ch = resolve_channel(client, channel)
             embed = None
-            if embed_title or embed_desc:
-                embed = discord.Embed(title=embed_title, description=embed_desc)
+            if any([embed_title, embed_desc, embed_color, embed_footer, embed_image, embed_thumbnail, embed_author, embed_field]):
+                embed_kwargs = {}
+                if embed_title:
+                    embed_kwargs["title"] = embed_title
+                if embed_desc:
+                    embed_kwargs["description"] = embed_desc
+                if embed_color:
+                    embed_kwargs["color"] = discord.Color(int(embed_color, 16))
+                embed = discord.Embed(**embed_kwargs)
+                if embed_footer:
+                    embed.set_footer(text=embed_footer)
+                if embed_image:
+                    embed.set_image(url=embed_image)
+                if embed_thumbnail:
+                    embed.set_thumbnail(url=embed_thumbnail)
+                if embed_author:
+                    embed.set_author(name=embed_author)
+                for field in embed_field:
+                    parts = field.split("::")
+                    name = parts[0] if len(parts) > 0 else ""
+                    value = parts[1] if len(parts) > 1 else ""
+                    inline = parts[2].lower() == "true" if len(parts) > 2 else False
+                    embed.add_field(name=name, value=value, inline=inline)
             attachments = [discord.File(f) for f in files]
             kwargs = {"content": text, "embed": embed}
             if attachments:
                 kwargs["files"] = attachments
             msg = await ch.send(**kwargs)
-            data = {"id": str(msg.id), "channel": ch.name, "content": msg.content}
+            data = {"id": str(msg.id), "channel": ch.name, "content": msg.content, "jump_url": msg.jump_url}
             if msg.attachments:
                 data["attachments"] = [{"filename": a.filename, "url": a.url, "size": a.size} for a in msg.attachments]
             output(ctx, data, plain_text=f"Sent message {msg.id} to #{ch.name}")
@@ -194,6 +221,7 @@ def message_get(ctx, channel, message_id):
                 "attachments": [{"filename": a.filename, "url": a.url} for a in msg.attachments],
                 "embeds": [{"title": e.title, "description": e.description} for e in msg.embeds],
                 "reply_to": str(msg.reference.message_id) if msg.reference else None,
+                "jump_url": msg.jump_url,
             }
             plain_lines = [
                 f"From: {data['author']} (ID: {data['author_id']})",
@@ -228,7 +256,7 @@ def message_reply(ctx, channel, message_id, text, files):
             if attachments:
                 kwargs["files"] = attachments
             msg = await original.reply(**kwargs)
-            data = {"id": str(msg.id), "channel": ch.name, "content": msg.content, "reply_to": message_id}
+            data = {"id": str(msg.id), "channel": ch.name, "content": msg.content, "reply_to": message_id, "jump_url": msg.jump_url}
             if msg.attachments:
                 data["attachments"] = [{"filename": a.filename, "url": a.url, "size": a.size} for a in msg.attachments]
             output(ctx, data, plain_text=f"Replied to {message_id} in #{ch.name}")
@@ -286,6 +314,30 @@ def message_search(ctx, channel, query, limit, author, before, after):
                 output(ctx, [], plain_text=f"No messages matching '{query}' found.")
             else:
                 output(ctx, results, plain_text=f"Found {len(results)} match(es):\n" + "\n".join(plain_lines))
+        return _action(client)
+
+    run_discord(ctx, action)
+
+
+@message_group.command("bulk-delete")
+@click.argument("channel")
+@click.argument("message_ids", nargs=-1, required=True)
+@click.pass_context
+def message_bulk_delete(ctx, channel, message_ids):
+    """Delete multiple messages at once (max 100, must be < 14 days old)."""
+    from discli.security import confirm_destructive, audit_log
+    confirm_destructive("message bulk-delete", f"{len(message_ids)} messages in {channel}")
+
+    def action(client):
+        async def _action(client):
+            ch = resolve_channel(client, channel)
+            messages = []
+            for mid in message_ids:
+                msg = await ch.fetch_message(int(mid))
+                messages.append(msg)
+            await ch.delete_messages(messages)
+            audit_log("message bulk-delete", {"channel": channel, "count": len(messages)})
+            output(ctx, {"deleted": len(messages)}, plain_text=f"Deleted {len(messages)} messages")
         return _action(client)
 
     run_discord(ctx, action)
