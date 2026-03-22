@@ -140,3 +140,35 @@ def role_remove(ctx, server, member, role):
         return _action(client)
 
     run_discord(ctx, action)
+
+
+@role_group.command("edit")
+@click.argument("server")
+@click.argument("role")
+@click.option("--name", default=None, help="New role name.")
+@click.option("--color", default=None, help="New hex color.")
+@click.option("--hoist/--no-hoist", default=None, help="Display separately in member list.")
+@click.option("--mentionable/--no-mentionable", default=None, help="Allow @mentioning this role.")
+@click.pass_context
+def role_edit(ctx, server, role, name, color, hoist, mentionable):
+    """Edit a role's properties."""
+    def action(client):
+        async def _action(client):
+            guild = resolve_guild(client, server)
+            r = resolve_role(guild, role)
+            kwargs = {}
+            if name is not None:
+                kwargs["name"] = name
+            if color is not None:
+                kwargs["color"] = discord.Color(int(color, 16))
+            if hoist is not None:
+                kwargs["hoist"] = hoist
+            if mentionable is not None:
+                kwargs["mentionable"] = mentionable
+            if not kwargs:
+                raise click.ClickException("No changes specified.")
+            await r.edit(**kwargs)
+            data = {"id": str(r.id), "name": r.name, "updated": list(kwargs.keys())}
+            output(ctx, data, plain_text=f"Updated role {r.name}: {', '.join(kwargs.keys())}")
+        return _action(client)
+    run_discord(ctx, action)
