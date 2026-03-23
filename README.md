@@ -73,6 +73,18 @@ graph TD
 
 ## Install
 
+### Quick Install
+```
+# macOS/Linux
+curl -L https://git.new/get-ipm | bash && ipm i DevRohit06/discli
+
+
+# Windows (Powershell)
+iwr https://git.new/get-ipm-ps | iex; ipm i DevRohit06/discli
+```
+
+### Other Installation Methods
+
 ```bash
 # macOS/Linux
 curl -fsSL https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.sh | bash
