@@ -25,6 +25,19 @@ discli = "discli.cli:main"
 where = ["src"]
 
 [project.optional-dependencies]
+voice = [
+    "PyNaCl>=1.5",
+    "discord-ext-voice-recv>=0.5",
+    "silero-vad>=5.0",
+    "audioop-lts>=0.2; python_version>='3.13'",
+]
+elevenlabs = ["elevenlabs>=1.0"]
+deepgram = ["deepgram-sdk>=3.0"]
+openai-voice = ["openai>=1.0"]
+local-voice = ["piper-tts>=1.2", "faster-whisper>=1.0"]
+all-voice = [
+    "discord-cli-agent[voice,elevenlabs,deepgram]",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
