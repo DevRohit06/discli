@@ -97,7 +97,13 @@ def message_list(ctx, channel, limit, before, after):
                     "content": msg.content,
                     "timestamp": msg.created_at.isoformat(),
                     "attachments": [{"filename": a.filename, "url": a.url, "size": a.size} for a in msg.attachments],
-                    "embeds": [{"title": e.title, "description": e.description} for e in msg.embeds],
+                    "embeds": [{
+                        "title": e.title,
+                        "description": e.description,
+                        "fields": [{"name": f.name, "value": f.value, "inline": f.inline} for f in e.fields],
+                        "footer": e.footer.text if e.footer else None,
+                        "author": e.author.name if e.author else None,
+                    } for e in msg.embeds],
                 })
             plain_lines = []
             for m in messages:
@@ -106,6 +112,20 @@ def message_list(ctx, channel, limit, before, after):
                 if m["attachments"]:
                     att = ", ".join(a["filename"] for a in m["attachments"])
                     line += f" [{att}]"
+                for e in m["embeds"]:
+                    embed_parts = []
+                    if e.get("author"):
+                        embed_parts.append(e["author"])
+                    if e.get("title"):
+                        embed_parts.append(f"[{e['title']}]")
+                    if e.get("description"):
+                        embed_parts.append(e["description"])
+                    for f in e.get("fields", []):
+                        embed_parts.append(f"{f['name']}: {f['value']}")
+                    if e.get("footer"):
+                        embed_parts.append(f"({e['footer']})")
+                    if embed_parts:
+                        line += " " + " | ".join(embed_parts)
                 plain_lines.append(line)
             output(ctx, messages, plain_text="\n".join(plain_lines))
         return _action(client)
@@ -143,6 +163,13 @@ def message_history(ctx, channel, days, hours, limit):
                     "content": msg.content,
                     "timestamp": msg.created_at.isoformat(),
                     "attachments": [{"filename": a.filename, "url": a.url, "size": a.size} for a in msg.attachments],
+                    "embeds": [{
+                        "title": e.title,
+                        "description": e.description,
+                        "fields": [{"name": f.name, "value": f.value, "inline": f.inline} for f in e.fields],
+                        "footer": e.footer.text if e.footer else None,
+                        "author": e.author.name if e.author else None,
+                    } for e in msg.embeds],
                 })
                 count += 1
                 if count % 100 == 0:
@@ -155,6 +182,20 @@ def message_history(ctx, channel, days, hours, limit):
                 if m["attachments"]:
                     att = ", ".join(a["filename"] for a in m["attachments"])
                     line += f" [{att}]"
+                for e in m["embeds"]:
+                    embed_parts = []
+                    if e.get("author"):
+                        embed_parts.append(e["author"])
+                    if e.get("title"):
+                        embed_parts.append(f"[{e['title']}]")
+                    if e.get("description"):
+                        embed_parts.append(e["description"])
+                    for f in e.get("fields", []):
+                        embed_parts.append(f"{f['name']}: {f['value']}")
+                    if e.get("footer"):
+                        embed_parts.append(f"({e['footer']})")
+                    if embed_parts:
+                        line += " " + " | ".join(embed_parts)
                 plain_lines.append(line)
 
             click.echo(f"Total: {len(messages)} messages", err=True)
@@ -271,19 +312,20 @@ def message_reply(ctx, channel, message_id, text, files):
 @message_group.command("search")
 @click.argument("channel")
 @click.argument("query")
-@click.option("--limit", default=100, help="Number of messages to scan (default: 100).")
+@click.option("--limit", default=None, type=int, help="Max matching results to return (default: unlimited).")
+@click.option("--scan", default=500, type=int, help="Number of messages to scan (default: 500).")
 @click.option("--author", default=None, help="Filter by author name.")
 @click.option("--before", default=None, help="Before date (YYYY-MM-DD or ISO).")
 @click.option("--after", default=None, help="After date (YYYY-MM-DD or ISO).")
 @click.pass_context
-def message_search(ctx, channel, query, limit, author, before, after):
+def message_search(ctx, channel, query, limit, scan, author, before, after):
     """Search messages in a channel by content."""
     from datetime import datetime
 
     def action(client):
         async def _action(client):
             ch = resolve_channel(client, channel)
-            kwargs = {"limit": limit}
+            kwargs = {"limit": scan}
             if before:
                 kwargs["before"] = datetime.fromisoformat(before)
             if after:
@@ -292,7 +334,25 @@ def message_search(ctx, channel, query, limit, author, before, after):
             results = []
             query_lower = query.lower()
             async for msg in ch.history(**kwargs):
-                if query_lower not in msg.content.lower():
+                embeds = [{
+                    "title": e.title,
+                    "description": e.description,
+                    "fields": [{"name": f.name, "value": f.value, "inline": f.inline} for f in e.fields],
+                    "footer": e.footer.text if e.footer else None,
+                    "author": e.author.name if e.author else None,
+                } for e in msg.embeds]
+                embed_text = " ".join(
+                    " ".join(filter(None, [
+                        e.get("title") or "",
+                        e.get("description") or "",
+                        e.get("author") or "",
+                        e.get("footer") or "",
+                        " ".join(f"{f['name']} {f['value']}" for f in e.get("fields", [])),
+                    ]))
+                    for e in embeds
+                )
+                searchable = (msg.content + " " + embed_text).lower()
+                if query_lower not in searchable:
                     continue
                 if author and author.lower() not in str(msg.author).lower():
                     continue
@@ -302,7 +362,10 @@ def message_search(ctx, channel, query, limit, author, before, after):
                     "content": msg.content,
                     "timestamp": msg.created_at.isoformat(),
                     "attachments": [{"filename": a.filename, "url": a.url, "size": a.size} for a in msg.attachments],
+                    "embeds": embeds,
                 })
+                if limit is not None and len(results) >= limit:
+                    break
 
             plain_lines = []
             for m in results:
@@ -311,6 +374,20 @@ def message_search(ctx, channel, query, limit, author, before, after):
                 if m["attachments"]:
                     att = ", ".join(f"{a['filename']} ({a['size']}B)" for a in m["attachments"])
                     line += f" [{att}]"
+                for e in m["embeds"]:
+                    embed_parts = []
+                    if e.get("author"):
+                        embed_parts.append(e["author"])
+                    if e.get("title"):
+                        embed_parts.append(f"[{e['title']}]")
+                    if e.get("description"):
+                        embed_parts.append(e["description"])
+                    for f in e.get("fields", []):
+                        embed_parts.append(f"{f['name']}: {f['value']}")
+                    if e.get("footer"):
+                        embed_parts.append(f"({e['footer']})")
+                    if embed_parts:
+                        line += " " + " | ".join(embed_parts)
                 plain_lines.append(line)
 
             if not results:
