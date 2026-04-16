@@ -72,6 +72,17 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             voice_engine.set_event_handler(emit)
         return voice_engine
 
+    # Interactive engine (lazy init)
+    interact_engine = None
+
+    def _get_interact_engine():
+        nonlocal interact_engine
+        if interact_engine is None:
+            from discli.interact_engine import InteractEngine
+            interact_engine = InteractEngine()
+            interact_engine.set_event_handler(emit)
+        return interact_engine
+
     # ── Helpers ──────────────────────────────────────────────────────
 
     def emit(data: dict) -> None:
@@ -414,6 +425,17 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             return
         if interaction.type == discord.InteractionType.component:
             data = interaction.data
+            custom_id = data.get("custom_id", "") if data else ""
+            # Route workflow/dashboard interactions to interact engine
+            if custom_id.startswith(("wf:", "dash:")):
+                engine = _get_interact_engine()
+                route = engine.route_custom_id(custom_id)
+                if route == "workflow":
+                    await engine.handle_workflow_interaction(interaction, custom_id)
+                    return
+                elif route == "dashboard":
+                    await engine.handle_dashboard_interaction(interaction, custom_id)
+                    return
             itk = str(uuid.uuid4())
             interactions[itk] = interaction
             # Don't defer here — let the agent choose: interaction_respond,
@@ -1734,6 +1756,82 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         engine.update_config(cmd.get("config", {}))
         return {"ok": True, "config": engine.config}
 
+    # ── Interactive Actions ────────────────────────────────────────
+
+    async def _action_workflow_start(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        from discli.interact_engine import WorkflowDefinition, WorkflowStep
+
+        channel_id = cmd.get("channel_id")
+        user_id = cmd.get("user_id")
+        raw = cmd.get("workflow", {})
+
+        ch = resolve_channel_by_id(channel_id)
+        if not ch:
+            return {"error": f"Channel {channel_id} not found"}
+
+        steps = [
+            WorkflowStep(
+                step_id=s["step_id"],
+                step_type=s["step_type"],
+                content=s.get("content", ""),
+                components=s.get("components", []),
+                fields=s.get("fields", []),
+                next=s.get("next"),
+                timeout=s.get("timeout", 300),
+            )
+            for s in raw.get("steps", [])
+        ]
+        wf_def = WorkflowDefinition(
+            workflow_id=raw.get("workflow_id", str(uuid.uuid4())),
+            steps=steps,
+        )
+        key = await engine.workflow_start(ch, user_id, wf_def)
+        return {"ok": True, "workflow_key": key}
+
+    async def _action_workflow_cancel(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        cancelled = engine.workflow_cancel(cmd.get("user_id"), cmd.get("workflow_id"))
+        return {"ok": True, "cancelled": cancelled}
+
+    async def _action_dashboard_create(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        from discli.interact_engine import DashboardDefinition, DashboardPage
+
+        channel_id = cmd.get("channel_id")
+        ch = resolve_channel_by_id(channel_id)
+        if not ch:
+            return {"error": f"Channel {channel_id} not found"}
+
+        raw = cmd.get("dashboard", {})
+        pages = [
+            DashboardPage(embed=p.get("embed", {}), components=p.get("components", []))
+            for p in raw.get("pages", [])
+        ]
+        dash_def = DashboardDefinition(
+            dashboard_id=raw.get("dashboard_id", str(uuid.uuid4())),
+            pages=pages,
+            refresh_interval=raw.get("refresh_interval", 0),
+        )
+        dash_id = await engine.dashboard_create(ch, dash_def)
+        return {"ok": True, "dashboard_id": dash_id}
+
+    async def _action_dashboard_update(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel {cmd.get('channel_id')} not found"}
+        await engine.dashboard_update(cmd.get("dashboard_id"), cmd.get("updates", {}), ch)
+        return {"ok": True}
+
+    async def _action_dashboard_delete(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel {cmd.get('channel_id')} not found"}
+        await engine.dashboard_delete(cmd.get("dashboard_id"), ch)
+        return {"ok": True}
+
     # ── Action Dispatch ────────────────────────────────────────────
 
     _actions: dict[str, callable] = {
@@ -1817,6 +1915,12 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         "voice_listen_stop": _action_voice_listen_stop,
         "voice_status": _action_voice_status,
         "voice_set_config": _action_voice_set_config,
+        # Workflows & Dashboards
+        "workflow_start": _action_workflow_start,
+        "workflow_cancel": _action_workflow_cancel,
+        "dashboard_create": _action_dashboard_create,
+        "dashboard_update": _action_dashboard_update,
+        "dashboard_delete": _action_dashboard_delete,
     }
 
     async def _dispatch(cmd: dict) -> dict:
