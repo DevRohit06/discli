@@ -33,17 +33,17 @@ DEFAULT_PROFILES = {
         "denied": [],
     },
     "chat": {
-        "description": "Messages, reactions, threads, typing only",
-        "allowed": ["message", "reaction", "thread", "typing", "dm", "listen", "serve", "config", "server"],
-        "denied": ["member kick", "member ban", "member unban", "channel delete", "role delete", "role create", "channel create"],
+        "description": "Messages, reactions, threads, typing, interactions only",
+        "allowed": ["message", "reaction", "thread", "typing", "dm", "listen", "serve", "config", "server", "interact"],
+        "denied": ["member kick", "member ban", "member unban", "channel delete", "role delete", "role create", "channel create", "voice"],
     },
     "readonly": {
         "description": "Read-only: list, info, get, search, listen",
-        "allowed": ["message list", "message get", "message search", "message history", "channel list", "channel info", "server list", "server info", "role list", "member list", "member info", "reaction list", "thread list", "listen", "config show"],
+        "allowed": ["message list", "message get", "message search", "message history", "channel list", "channel info", "server list", "server info", "role list", "member list", "member info", "reaction list", "thread list", "listen", "config show", "voice status"],
         "denied": ["*"],
     },
     "moderation": {
-        "description": "Full access including moderation",
+        "description": "Full access including moderation, voice, and interactions",
         "allowed": ["*"],
         "denied": [],
     },
