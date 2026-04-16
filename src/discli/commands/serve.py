@@ -59,6 +59,19 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     streams: dict[str, dict] = {}  # stream_id -> stream state
     interactions: dict[str, discord.Interaction] = {}  # token -> interaction
 
+    # Voice engine (lazy init)
+    voice_engine = None
+
+    def _get_voice_engine():
+        nonlocal voice_engine
+        if voice_engine is None:
+            from discli.voice_engine import VoiceEngine
+            from discli.config import load_config
+            config = load_config()
+            voice_engine = VoiceEngine(config=config.get("voice", {}))
+            voice_engine.set_event_handler(emit)
+        return voice_engine
+
     # ── Helpers ──────────────────────────────────────────────────────
 
     def emit(data: dict) -> None:
@@ -1647,6 +1660,80 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         event = await guild.create_scheduled_event(**kwargs)
         return {"ok": True, "event_id": str(event.id), "name": event.name}
 
+    # ── Voice Actions ──────────────────────────────────────────────
+
+    async def _action_voice_connect(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        channel_id = cmd.get("channel_id")
+        ch = client.get_channel(int(channel_id))
+        if not ch or not isinstance(ch, discord.VoiceChannel):
+            return {"error": f"Voice channel {channel_id} not found"}
+        await engine.connect(ch)
+        return {"ok": True, "channel_id": channel_id, "guild_id": str(ch.guild.id)}
+
+    async def _action_voice_disconnect(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        await engine.disconnect(cmd.get("guild_id"))
+        return {"ok": True}
+
+    async def _action_voice_move(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        channel_id = cmd.get("channel_id")
+        ch = client.get_channel(int(channel_id))
+        if not ch or not isinstance(ch, discord.VoiceChannel):
+            return {"error": f"Voice channel {channel_id} not found"}
+        await engine.move(ch)
+        return {"ok": True, "channel_id": channel_id}
+
+    async def _action_voice_speak(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        await engine.speak(
+            cmd.get("guild_id"),
+            cmd.get("text", ""),
+            voice=cmd.get("voice", "default"),
+            speed=cmd.get("speed", 1.0),
+        )
+        return {"ok": True}
+
+    async def _action_voice_play(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        await engine.play(cmd.get("guild_id"), cmd.get("source", ""))
+        return {"ok": True}
+
+    async def _action_voice_stop(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        engine.stop(cmd.get("guild_id"))
+        return {"ok": True}
+
+    async def _action_voice_pause(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        engine.pause(cmd.get("guild_id"))
+        return {"ok": True}
+
+    async def _action_voice_resume(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        engine.resume(cmd.get("guild_id"))
+        return {"ok": True}
+
+    async def _action_voice_listen_start(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        await engine.listen_start(cmd.get("guild_id"))
+        return {"ok": True}
+
+    async def _action_voice_listen_stop(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        await engine.listen_stop(cmd.get("guild_id"))
+        return {"ok": True}
+
+    async def _action_voice_status(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        return {"ok": True, "connections": engine.status()}
+
+    async def _action_voice_set_config(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        engine.update_config(cmd.get("config", {}))
+        return {"ok": True, "config": engine.config}
+
     # ── Action Dispatch ────────────────────────────────────────────
 
     _actions: dict[str, callable] = {
@@ -1717,6 +1804,19 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         # Server
         "server_list": _action_server_list,
         "server_info": _action_server_info,
+        # Voice
+        "voice_connect": _action_voice_connect,
+        "voice_disconnect": _action_voice_disconnect,
+        "voice_move": _action_voice_move,
+        "voice_speak": _action_voice_speak,
+        "voice_play": _action_voice_play,
+        "voice_stop": _action_voice_stop,
+        "voice_pause": _action_voice_pause,
+        "voice_resume": _action_voice_resume,
+        "voice_listen_start": _action_voice_listen_start,
+        "voice_listen_stop": _action_voice_listen_stop,
+        "voice_status": _action_voice_status,
+        "voice_set_config": _action_voice_set_config,
     }
 
     async def _dispatch(cmd: dict) -> dict:
