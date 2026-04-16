@@ -1751,6 +1751,70 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         engine = _get_voice_engine()
         return {"ok": True, "connections": engine.status()}
 
+    async def _action_voice_where(cmd: dict) -> dict:
+        """Find which voice channel a user is in. Does not require a voice connection."""
+        user_id = cmd.get("user_id")
+        guild_id = cmd.get("guild_id")
+        if not user_id:
+            return {"error": "Missing 'user_id'"}
+        try:
+            uid = int(user_id)
+        except (TypeError, ValueError):
+            return {"error": f"Invalid user_id: {user_id}"}
+
+        guilds = [client.get_guild(int(guild_id))] if guild_id else list(client.guilds)
+        matches = []
+        for guild in guilds:
+            if guild is None:
+                continue
+            vs = guild.voice_states.get(uid)
+            if vs is None:
+                continue
+            member = guild.get_member(uid)
+            ch = vs.channel
+            matches.append({
+                "user_id": str(uid),
+                "user_name": str(member) if member else None,
+                "guild_id": str(guild.id),
+                "guild_name": guild.name,
+                "channel_id": str(ch.id) if ch else None,
+                "channel_name": ch.name if ch else None,
+                "self_mute": vs.self_mute,
+                "self_deaf": vs.self_deaf,
+                "mute": vs.mute,
+                "deaf": vs.deaf,
+            })
+        return {"ok": True, "matches": matches}
+
+    async def _action_voice_members(cmd: dict) -> dict:
+        """List members currently in a voice channel. Does not require a voice connection."""
+        channel_id = cmd.get("channel_id")
+        if not channel_id:
+            return {"error": "Missing 'channel_id'"}
+        ch = client.get_channel(int(channel_id))
+        if not ch or not isinstance(ch, discord.VoiceChannel):
+            return {"error": f"Voice channel {channel_id} not found"}
+        members = []
+        for member in ch.members:
+            vs = member.voice
+            members.append({
+                "user_id": str(member.id),
+                "user_name": str(member),
+                "display_name": member.display_name,
+                "self_mute": vs.self_mute if vs else False,
+                "self_deaf": vs.self_deaf if vs else False,
+                "mute": vs.mute if vs else False,
+                "deaf": vs.deaf if vs else False,
+            })
+        return {
+            "ok": True,
+            "channel_id": str(ch.id),
+            "channel_name": ch.name,
+            "guild_id": str(ch.guild.id),
+            "count": len(members),
+            "members": members,
+        }
+
     async def _action_voice_set_config(cmd: dict) -> dict:
         engine = _get_voice_engine()
         engine.update_config(cmd.get("config", {}))
@@ -1914,6 +1978,8 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         "voice_listen_start": _action_voice_listen_start,
         "voice_listen_stop": _action_voice_listen_stop,
         "voice_status": _action_voice_status,
+        "voice_where": _action_voice_where,
+        "voice_members": _action_voice_members,
         "voice_set_config": _action_voice_set_config,
         # Workflows & Dashboards
         "workflow_start": _action_workflow_start,

@@ -39,7 +39,7 @@ DEFAULT_PROFILES = {
     },
     "readonly": {
         "description": "Read-only: list, info, get, search, listen",
-        "allowed": ["message list", "message get", "message search", "message history", "channel list", "channel info", "server list", "server info", "role list", "member list", "member info", "reaction list", "thread list", "listen", "config show", "voice status"],
+        "allowed": ["message list", "message get", "message search", "message history", "channel list", "channel info", "server list", "server info", "role list", "member list", "member info", "reaction list", "thread list", "listen", "config show", "voice status", "voice where", "voice members"],
         "denied": ["*"],
     },
     "moderation": {

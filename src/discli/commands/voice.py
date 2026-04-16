@@ -338,6 +338,108 @@ def voice_listen(ctx, server, duration, continuous):
     run_discord(ctx, action)
 
 
+@voice_group.command("where")
+@click.argument("user")
+@click.option("--server", default=None, help="Server name or ID to scope the search.")
+@click.pass_context
+def voice_where(ctx, user, server):
+    """Find which voice channel a user is currently in."""
+
+    def action(client):
+        async def _action(client):
+            guilds = [resolve_guild(client, server)] if server else client.guilds
+
+            try:
+                user_id = int(user)
+            except ValueError:
+                user_id = None
+
+            matches = []
+            for guild in guilds:
+                for member_id, vs in guild.voice_states.items():
+                    if user_id is not None and member_id != user_id:
+                        continue
+                    member = guild.get_member(member_id)
+                    if user_id is None:
+                        name = user.lstrip("@").lower()
+                        if not member or (
+                            member.name.lower() != name
+                            and (member.display_name or "").lower() != name
+                        ):
+                            continue
+                    ch = vs.channel
+                    matches.append({
+                        "user_id": str(member_id),
+                        "user_name": str(member) if member else None,
+                        "guild_id": str(guild.id),
+                        "guild_name": guild.name,
+                        "channel_id": str(ch.id) if ch else None,
+                        "channel_name": ch.name if ch else None,
+                        "self_mute": vs.self_mute,
+                        "self_deaf": vs.self_deaf,
+                        "mute": vs.mute,
+                        "deaf": vs.deaf,
+                    })
+
+            if not matches:
+                output(ctx, [], plain_text=f"User '{user}' is not in any voice channel.")
+            else:
+                plain = "\n".join(
+                    f"{m['user_name'] or m['user_id']} — #{m['channel_name']} in {m['guild_name']}"
+                    for m in matches
+                )
+                output(ctx, matches, plain_text=plain)
+
+        return _action(client)
+
+    run_discord(ctx, action)
+
+
+@voice_group.command("members")
+@click.argument("channel")
+@click.option("--server", default=None, help="Server name or ID.")
+@click.pass_context
+def voice_members(ctx, channel, server):
+    """List members currently connected to a voice channel."""
+
+    def action(client):
+        async def _action(client):
+            ch = _resolve_voice_channel(client, channel, server)
+            members = []
+            for member in ch.members:
+                vs = member.voice
+                members.append({
+                    "user_id": str(member.id),
+                    "user_name": str(member),
+                    "display_name": member.display_name,
+                    "self_mute": vs.self_mute if vs else False,
+                    "self_deaf": vs.self_deaf if vs else False,
+                    "mute": vs.mute if vs else False,
+                    "deaf": vs.deaf if vs else False,
+                })
+
+            data = {
+                "channel_id": str(ch.id),
+                "channel_name": ch.name,
+                "guild_id": str(ch.guild.id),
+                "guild_name": ch.guild.name,
+                "count": len(members),
+                "members": members,
+            }
+
+            if not members:
+                output(ctx, data, plain_text=f"#{ch.name} is empty.")
+            else:
+                plain = f"#{ch.name} ({len(members)} member{'s' if len(members) != 1 else ''}):\n" + "\n".join(
+                    f"  - {m['display_name']} ({m['user_id']})" for m in members
+                )
+                output(ctx, data, plain_text=plain)
+
+        return _action(client)
+
+    run_discord(ctx, action)
+
+
 @voice_group.command("status")
 @click.pass_context
 def voice_status(ctx):
