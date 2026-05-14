@@ -209,13 +209,6 @@ def _check_ffmpeg() -> Check:
     )
 
 
-def _check_optional_pkg(pkg: str, *, friendly: str | None = None, hint: str) -> Check:
-    v = _pkg_version(pkg)
-    if v is None:
-        return Check(friendly or pkg, False, "not installed", hint=hint, skipped=True)
-    return Check(friendly or pkg, True, f"v{v}")
-
-
 def _voice_section() -> Section:
     """VOICE checks. If no voice extra is installed at all, treat the whole
     section as "not configured" so developers who never touch voice see a
@@ -276,22 +269,10 @@ def _gather() -> list[Section]:
         _voice_section(),
     ]
     # STT/TTS/ffmpeg only matter once voice is on the table. A pure-text dev
-    # gets a four-section report (CORE, VOICE not configured, EXAMPLES).
+    # gets a two-section report (CORE + VOICE-not-configured).
     if _voice_extras_installed():
         sections.extend([_stt_section(), _tts_section()])
         sections.append(Section("TOOLS", [_check_ffmpeg()]))
-    sections.append(
-        Section(
-            "EXAMPLES",
-            [
-                _check_optional_pkg(
-                    "claude-agent-sdk",
-                    friendly="claude-agent-sdk",
-                    hint="`pip install claude-agent-sdk` to run examples/claude_agent.py and examples/meeting_transcriber.py",
-                ),
-            ],
-        )
-    )
     return sections
 
 
