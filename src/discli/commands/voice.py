@@ -7,6 +7,25 @@ from discli.client import run_discord
 from discli.utils import output, resolve_guild
 
 
+def _require_voice_extras_or_exit() -> None:
+    """Raise ClickException with a clean install hint if voice extras missing.
+
+    Called at the top of every voice subcommand that talks to Discord voice
+    so devs see a one-liner instead of a Python traceback.
+    Read-only state-lookup commands (``voice where``, ``voice members``,
+    ``voice status``) skip this — they don't open a voice connection.
+    """
+    from discli.voice_engine import check_voice_extras
+
+    missing = check_voice_extras()
+    if missing:
+        raise click.ClickException(
+            f"Voice features need extras that aren't installed: {', '.join(missing)}.\n"
+            f"Install with: uv sync --extra voice  (or: pip install 'discord-cli-agent[voice]').\n"
+            f"Run `discli doctor` to verify the full setup."
+        )
+
+
 def _resolve_voice_channel(client, channel_identifier: str, server: str | None):
     """Resolve a voice channel by name or ID, optionally scoped to a server."""
     if server:
@@ -60,6 +79,7 @@ def voice_group():
 @click.pass_context
 def voice_join(ctx, channel, server):
     """Join a voice channel."""
+    _require_voice_extras_or_exit()
 
     def action(client):
         async def _action(client):
@@ -89,6 +109,7 @@ def voice_join(ctx, channel, server):
 @click.pass_context
 def voice_leave(ctx, server):
     """Leave the active voice channel."""
+    _require_voice_extras_or_exit()
 
     def action(client):
         async def _action(client):
@@ -119,6 +140,7 @@ def voice_leave(ctx, server):
 @click.pass_context
 def voice_speak(ctx, text, server, voice_name, speed):
     """Speak text using TTS in the active voice channel."""
+    _require_voice_extras_or_exit()
 
     def action(client):
         async def _action(client):
@@ -153,6 +175,7 @@ def voice_speak(ctx, text, server, voice_name, speed):
 @click.pass_context
 def voice_play(ctx, source, server, volume):
     """Play a file or URL in the active voice channel."""
+    _require_voice_extras_or_exit()
 
     def action(client):
         async def _action(client):
@@ -274,6 +297,7 @@ def voice_resume(ctx, server):
 @click.pass_context
 def voice_listen(ctx, server, duration, continuous):
     """Listen to the active voice channel and print transcriptions."""
+    _require_voice_extras_or_exit()
 
     def action(client):
         async def _action(client):
@@ -359,6 +383,7 @@ def voice_capture(ctx, server, duration, output_dir):
     spoke in the channel during the capture window. Treat them like any
     voice recording — don't share without consent.
     """
+    _require_voice_extras_or_exit()
 
     def action(client):
         async def _action(client):

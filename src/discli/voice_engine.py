@@ -92,6 +92,42 @@ def install_voice_recv_patches() -> bool:
     return True
 
 
+def check_voice_extras() -> list[str]:
+    """Return a list of missing voice extras. Empty when everything is wired.
+
+    Designed for use at command-entry / engine-entry points so devs get a
+    one-liner install hint instead of cryptic RuntimeErrors from discord.py
+    or import failures deeper in the stack.
+    """
+    missing: list[str] = []
+    try:
+        import nacl  # type: ignore[import]  # noqa: F401
+    except ImportError:
+        missing.append("PyNaCl")
+    try:
+        from discord.ext import voice_recv  # type: ignore[import]  # noqa: F401
+    except ImportError:
+        missing.append("discord-ext-voice-recv")
+    try:
+        import davey  # type: ignore[import]  # noqa: F401
+    except ImportError:
+        missing.append("davey")
+    return missing
+
+
+def require_voice_extras() -> None:
+    """Raise VoiceError if any of the voice extras are missing."""
+    missing = check_voice_extras()
+    if missing:
+        raise VoiceError(
+            f"Voice features need extra dependencies that aren't installed: "
+            f"{', '.join(missing)}.\n"
+            f"Install with: `uv sync --extra voice` "
+            f"(or `pip install 'discord-cli-agent[voice]'`).\n"
+            f"Run `discli doctor` to verify the full setup."
+        )
+
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "tts_provider": "elevenlabs",
     "tts_voice": "default",
@@ -471,27 +507,25 @@ class VoiceEngine:
         return vc
 
     async def connect(self, channel: discord.VoiceChannel) -> discord.VoiceClient:
-        """Connect to a voice channel, or move if already in this guild."""
+        """Connect to a voice channel, or move if already in this guild.
+
+        Raises ``VoiceError`` up-front with a friendly install hint if any
+        voice extra is missing, instead of letting discord.py raise a
+        cryptic RuntimeError from inside the voice handshake.
+        """
+        require_voice_extras()
         guild_id = channel.guild.id
         if guild_id in self.connections:
             vc = self.connections[guild_id]
             await vc.move_to(channel)
         else:
-            # Prefer VoiceRecvClient so we can capture incoming audio.
-            try:
-                from discord.ext import voice_recv  # type: ignore[import]
-                vc = await channel.connect(cls=voice_recv.VoiceRecvClient)
-                print(
-                    f"[voice] connected ({type(vc).__name__}) "
-                    f"to guild={guild_id} channel={channel.id}",
-                    flush=True,
-                )
-            except ImportError:
-                vc = await channel.connect()
-                print(
-                    "[voice] connected default VoiceClient — voice_recv missing",
-                    flush=True,
-                )
+            from discord.ext import voice_recv  # type: ignore[import]
+            vc = await channel.connect(cls=voice_recv.VoiceRecvClient)
+            print(
+                f"[voice] connected ({type(vc).__name__}) "
+                f"to guild={guild_id} channel={channel.id}",
+                flush=True,
+            )
             self.connections[guild_id] = vc
 
         player = AudioPlayer(vc, volume=self.config["playback_volume"])
