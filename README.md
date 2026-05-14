@@ -16,577 +16,166 @@
 
 ---
 
-Manage Discord servers, send messages, react, handle DMs, threads, voice channels (TTS, STT, meeting transcription), and rich interactive components (modals, workflows, dashboards) — all from the terminal. Built with security and AI agent integration in mind.
+A scriptable terminal interface to Discord — messages, channels, threads, members, polls, voice (TTS / STT / live transcription), and interactive components (modals, workflows, dashboards). Designed for **piping to and from AI agents** with a JSONL serve protocol, permission profiles, and per-command audit logging.
 
-## How it works
+## In 30 seconds
 
-```mermaid
-graph TD
-    A[discli CLI] --> B[Commands]
-    A --> C[Listen]
-    A --> D[Security]
+```bash
+pip install 'discord-cli-agent[voice,deepgram]' claude-agent-sdk
+discli config set token YOUR_BOT_TOKEN
+export DEEPGRAM_API_KEY=...
 
-    B --> |fire & exit| E[discord.py]
-    C --> |stay connected| E
-
-    D --> D1[Permission Profiles]
-    D --> D2[Audit Logging]
-    D --> D3[Rate Limiting]
-    D --> D4[User Permission Check]
-
-    E --> F[Discord Bot API]
-
-    style A fill:#5865F2,color:#fff
-    style F fill:#5865F2,color:#fff
-    style D fill:#ED4245,color:#fff
+python examples/meeting_transcriber.py <voice_channel_id>
 ```
+
+```
+Listening to #standup. Transcript: ~/.discli/transcripts/meeting-20260514-103000.md
+Press Ctrl+C to stop and generate a summary.
+
+- **[10:30:14] Roy:** ok let's go around — what did everyone do yesterday
+- **[10:30:22] Sara:** finished the auth migration, started on the rate limiter
+- **[10:30:35] Roy:** nice — anything blocking
+^C
+Generating summary from 47 line(s)…
+
+## Summary
+Standup covering yesterday's work. Sara finished the auth migration; rate limiter is next.
+
+## Action items
+- Sara: finish rate limiter today.
+- Roy: write the migration runbook by Friday.
+```
+
+That's a full meeting transcriber — DAVE-aware voice receive, speaker-labelled transcripts, Claude-generated summary on exit — running on top of `discli` primitives.
+
+## Why discli
+
+- **CLI-native**: every Discord operation is a `discli ...` command with `--json` output. Pipe it through `jq`, wrap it in bash, drive it from any language.
+- **Built for AI agents**: a long-running `discli serve` mode speaks JSONL over stdin/stdout — feed it directly to Claude Agent SDK, OpenAI, LangChain, or your own loop.
+- **Voice that actually works**: server voice channels, streaming STT (Deepgram / Whisper), TTS (ElevenLabs / OpenAI / Aura), and the DAVE-encryption patch that makes listening work on modern Discord.
+- **Secure by default**: permission profiles (`full` / `chat` / `readonly` / `moderation`), per-command audit log, built-in rate limiter, optional triggering-user permission checks.
+
+## Install
+
+```bash
+pip install discord-cli-agent
+```
+
+Requires Python 3.10+. For voice (TTS / STT / meeting transcription) install the `voice` extra plus a provider:
+
+```bash
+pip install 'discord-cli-agent[voice,deepgram]'
+# or with uv
+uv add 'discord-cli-agent[voice,deepgram]'
+```
+
+You'll also need **libopus** (`apt install libopus0` / `brew install opus`) and **ffmpeg** for `voice play` / TTS playback. The full install matrix is in [`docs/getting-started/installation.mdx`](docs/getting-started/installation.mdx).
+
+## Setup
+
+1. Create a bot at [Discord Developer Portal](https://discord.com/developers/applications).
+2. Enable the intents you need (Message Content is required for reading messages; Members for member lookups; Voice State for voice tracking).
+3. Add the bot to your server with the permissions your use case actually needs — least privilege beats "enable everything".
+4. Save your token:
+
+   ```bash
+   discli config set token YOUR_BOT_TOKEN
+   ```
+
+5. Verify the install:
+
+   ```bash
+   discli doctor
+   ```
+
+   `doctor` checks CORE / VOICE / STT / TTS / TOOLS. Optional pieces you haven't asked for stay silent — text-only devs see a clean two-section report.
+
+## Features at a glance
+
+| Category | What's in it | Docs |
+|----------|--------------|------|
+| Messaging | send, reply, edit, delete, bulk-delete, search, history, embeds, attachments, components | [CLI Commands](docs/reference/cli-commands.mdx#message) |
+| DMs & Threads | send / list DMs, create / list / archive threads | [CLI Commands](docs/reference/cli-commands.mdx#dm) |
+| Channels & Servers | list / info / create / edit / delete channels and roles, list servers and members | [CLI Commands](docs/reference/cli-commands.mdx#channel) |
+| Reactions & Polls | add, remove, list, users; create polls with multiple choices | [CLI Commands](docs/reference/cli-commands.mdx#reaction) |
+| Voice | join / leave / speak / play, streaming STT, debug capture, status lookups | [Voice guide](docs/guides/voice.mdx) |
+| Interactive | modals, multi-step workflows with state + timeout, persistent dashboards | [Components & Modals](docs/guides/components-modals.mdx) |
+| Live events | real-time event stream (`discli listen`) with filtering | [Streaming](docs/guides/streaming-responses.mdx) |
+| Persistent bot | `discli serve` — bidirectional JSONL over stdin/stdout, 54 actions, 17 events | [Serve Mode](docs/guides/serve-mode.mdx) |
+| Slash commands | declarative JSON, hot-reload friendly | [Slash Commands](docs/guides/slash-commands.mdx) |
+| Doctor | one-shot setup verification | [`discli doctor`](docs/reference/cli-commands.mdx#doctor) |
+
+Every command supports `--json` for machine-readable output. Identifiers accept both IDs and names (`#general` or `123456789`, `alice` or her snowflake).
+
+## Security & permissions
+
+Four built-in profiles control which commands an invocation can run:
+
+| Profile | Description | Voice | Destructive ops |
+|---------|-------------|-------|-----------------|
+| `full` | Everything (default) | yes | yes |
+| `moderation` | Everything including bans / kicks / role mgmt | yes | yes |
+| `chat` | Messages, reactions, threads, interactions | denied | denied |
+| `readonly` | List / info / get / search + stateless voice lookups | status / where / members | denied |
+
+```bash
+discli --profile chat message send #general "hi"     # ok
+discli --profile chat voice join general              # denied
+discli --profile chat channel delete announcements    # denied
+```
+
+Every destructive action is logged to `~/.discli/audit.log`. View with `discli audit show`. The full security model — including triggering-user permission checks and the rate limiter — is in [`docs/architecture/security-model.mdx`](docs/architecture/security-model.mdx).
+
+## Examples
+
+The headline example is `examples/meeting_transcriber.py` (the one above). The rest:
+
+| Example | What it does |
+|---------|--------------|
+| [`ai_serve_agent.py`](examples/ai_serve_agent.py) | All-in-one Claude agent using `discli serve` — messages, buttons, selects, modals, streaming |
+| [`meeting_transcriber.py`](examples/meeting_transcriber.py) | Live voice transcript + Claude summary on Ctrl+C |
+| [`claude_agent.py`](examples/claude_agent.py) | Voice + interactive Claude agent (`@mention` driven) |
+| [`component_test_bot.py`](examples/component_test_bot.py) | Buttons / selects / modals / embeds / streaming reference |
+| [`serve_bot.py`](examples/serve_bot.py) | Minimal echo bot using `discli serve` |
+| [`moderation_bot.py`](examples/moderation_bot.py) | Keyword filter with warnings and kick escalation |
+| [`support_agent.py`](examples/support_agent.py) | Rule-based support bot replying to @mentions |
+| [`thread_support_agent.py`](examples/thread_support_agent.py) | Thread-per-ticket helpdesk |
+| [`channel_logger.sh`](examples/channel_logger.sh) | Log messages to JSONL |
+| [`reaction_poll.sh`](examples/reaction_poll.sh) | Emoji reaction poll |
+
+The full reference [`agents/discord-agent.md`](agents/discord-agent.md) can be dropped into any agent's system prompt — works with Claude, OpenAI, LangChain, or anything that takes a prompt.
+
+**Bash agent in 8 lines** (no Python required):
+
+```bash
+discli --json listen --events messages | while read -r event; do
+  mentions_bot=$(echo "$event" | jq -r '.mentions_bot')
+  if [ "$mentions_bot" = "true" ]; then
+    channel=$(echo "$event" | jq -r '.channel_id')
+    msg=$(echo "$event" | jq -r '.message_id')
+    discli message reply "$channel" "$msg" "Hello! How can I help?"
+  fi
+done
+```
+
+## Architecture
 
 ```mermaid
 graph LR
-    A[discli serve] -->|stdout JSONL| B[AI Agent\ne.g. Claude]
+    A[discli serve] -->|stdout JSONL| B[AI Agent]
     B -->|stdin JSONL| A
-    A <-->|persistent| C[Discord Bot API]
+    A <-->|persistent gateway| C[Discord]
 
     style A fill:#5865F2,color:#fff
     style B fill:#D97706,color:#fff
     style C fill:#5865F2,color:#fff
 ```
 
-```mermaid
-graph TD
-    subgraph Security Layer
-        P[Permission Profiles] --> |full / chat / readonly| CHECK{Allowed?}
-        CHECK --> |Yes| EXEC[Execute Command]
-        CHECK --> |No| DENY[Deny + Log]
-        EXEC --> CONFIRM{Destructive?}
-        CONFIRM --> |Yes| PROMPT[Confirm or --yes]
-        CONFIRM --> |No| RUN[Run]
-        PROMPT --> RUN
-        RUN --> AUDIT[Audit Log]
-        RUN --> RATE[Rate Limiter]
-    end
+Fire-and-exit commands for scripts; persistent `serve` mode for agents. Both share the same security layer (profiles, audit, rate limiter, optional triggering-user perm checks). Voice receive monkeypatches `discord-ext-voice-recv` at load time to insert DAVE decryption between SecretBox and libopus — see [`docs/guides/voice.mdx`](docs/guides/voice.mdx#behind-the-scenes--dave-encryption) for the details.
 
-    style P fill:#ED4245,color:#fff
-    style DENY fill:#ED4245,color:#fff
-    style AUDIT fill:#57F287,color:#000
-```
-
-## Install
-
-### Quick Install
-```
-# macOS/Linux
-curl -L https://git.new/get-ipm | bash && ipm i DevRohit06/discli
-
-
-# Windows (Powershell)
-iwr https://git.new/get-ipm-ps | iex; ipm i DevRohit06/discli
-```
-
-### Other Installation Methods
-
-```bash
-# macOS/Linux
-curl -fsSL https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.sh | bash
-
-# Windows (PowerShell)
-irm https://raw.githubusercontent.com/DevRohit06/discli/main/installers/install.ps1 | iex
-```
-
-Or with pip:
-
-```bash
-pip install discord-cli-agent
-```
-
-Requires Python 3.10+.
-
-### Optional: voice features
-
-The core install is text-only. For voice (TTS, STT, meeting transcription) install the `voice` extra plus a provider:
-
-```bash
-pip install 'discord-cli-agent[voice,deepgram]'
-# or with uv:
-uv add 'discord-cli-agent[voice,deepgram]'
-```
-
-You'll also need **libopus** (`apt install libopus0` / `brew install opus`) and **ffmpeg** (for `voice play` and TTS playback). Then verify with `discli doctor` — see [`docs/guides/voice.mdx`](docs/guides/voice.mdx) for the full walkthrough.
-
-## Setup
-
-1. Create a bot at [Discord Developer Portal](https://discord.com/developers/applications)
-2. Enable **all privileged intents** (Presence, Server Members, Message Content)
-3. Add the bot to your server with appropriate permissions
-4. Configure your token:
-
-```bash
-# Option A: Save to config
-discli config set token YOUR_BOT_TOKEN
-
-# Option B: Environment variable
-export DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN
-
-# Option C: Pass directly
-discli --token YOUR_BOT_TOKEN server list
-```
-
-5. **Verify everything works:**
-
-```bash
-discli doctor
-```
-
-`doctor` reports CORE / VOICE / STT / TTS / TOOLS status. Optional pieces you haven't asked for are silenced — text-only devs see a clean two-section report. Use `--json` for scripting.
-
-## Usage
-
-Every command supports `--json` for machine-readable output.
-
-### Messages
-
-```bash
-discli message send #general "Hello world!"
-discli message send #general "Check this out" --embed-title "News" --embed-desc "Big update"
-discli message send #general "Alert" --embed-color ff0000 --embed-footer "Footer" --embed-field "Name::Value::true"
-discli message bulk-delete #general 111 222 333
-discli message send #general "Here's the report" --file report.pdf
-discli message send #general "Screenshots" --file bug.png --file logs.txt
-discli message list #general --limit 20
-discli message list #general --after 2026-03-01 --before 2026-03-14
-discli message get #general 123456789
-discli message reply #general 123456789 "Here you go" --file fix.patch
-discli message edit #general 123456789 "Updated text"
-discli message delete #general 123456789
-```
-
-### Search & History
-
-```bash
-# Search messages by content
-discli message search #general "bug report" --limit 100
-discli message search #general "help" --author alice --after 2026-03-01
-
-# Deep history backfill
-discli message history #general --days 7
-discli message history #general --hours 24 --limit 500
-```
-
-### Direct Messages
-
-```bash
-discli dm send alice "Hey, need help?"
-discli dm send alice "Check this file" --file notes.pdf
-discli dm send 123456789 "Sent by user ID"
-discli dm list alice --limit 10
-```
-
-### Reactions
-
-```bash
-discli reaction add #general 123456789 👍
-discli reaction remove #general 123456789 👍
-discli reaction list #general 123456789
-discli reaction users #general 123456789 👍 --limit 100
-```
-
-### Channels
-
-```bash
-discli channel list --server "My Server"
-discli channel create "My Server" new-channel --type text
-discli channel create "My Server" voice-room --type voice
-discli channel info #general
-discli channel edit #general --name new-name --topic "New topic" --slowmode 10
-discli channel create "My Server" "forum-name" --type forum --topic "Forum topic"
-discli channel forum-post #forum-channel "Post Title" "Post content"
-discli channel set-permissions #general @Moderator --allow send_messages,read_messages --deny manage_messages --target-type role
-discli channel delete #old-channel
-```
-
-### Threads
-
-```bash
-discli thread create #general 123456789 "Support Ticket"
-discli thread list #general
-discli thread send 987654321 "Following up on your issue"
-discli thread send 987654321 "Attached the logs" --file debug.log
-discli thread archive 987654321
-discli thread unarchive 987654321
-discli thread rename 987654321 "New Thread Name"
-discli thread add-member 987654321 123456789
-discli thread remove-member 987654321 123456789
-```
-
-### Servers
-
-```bash
-discli server list
-discli server info "My Server"
-```
-
-### Roles
-
-```bash
-discli role list "My Server"
-discli role create "My Server" Moderator --color ff0000
-discli role assign "My Server" alice Moderator
-discli role remove "My Server" alice Moderator
-discli role edit "My Server" Moderator --name "Senior Mod" --color 00ff00 --hoist --mentionable
-discli role delete "My Server" Moderator
-```
-
-### Members
-
-```bash
-discli member list "My Server" --limit 100
-discli member info "My Server" alice
-discli member kick "My Server" alice --reason "Spam"
-discli member ban "My Server" alice --reason "Repeated violations"
-discli member unban "My Server" alice
-discli member timeout "My Server" alice 3600 --reason "Spam"
-discli member timeout "My Server" alice 0    # remove timeout
-```
-
-### Polls
-
-```bash
-discli poll results #general 123456789
-discli poll end #general 123456789
-```
-
-### Webhooks
-
-```bash
-discli webhook list #general
-discli webhook create #general "my-webhook"
-discli webhook delete #general 123456789
-```
-
-### Events
-
-```bash
-discli event list "My Server"
-discli event create "My Server" "Game Night" "2026-04-01T18:00:00" --location "Park" --end-time "2026-04-01T20:00:00"
-discli event create "My Server" "Voice Hangout" "2026-04-01T18:00:00" --channel #voice-room
-discli event delete "My Server" 123456789
-```
-
-### Typing Indicator
-
-```bash
-discli typing #general                # 5 seconds (default)
-discli typing #general --duration 10  # 10 seconds
-```
-
-### Voice
-
-Requires the `voice` extra. See [`docs/guides/voice.mdx`](docs/guides/voice.mdx) for the full walkthrough.
-
-```bash
-# Join / leave a voice channel
-discli voice join "general"
-discli voice leave
-
-# Speak via TTS
-export ELEVENLABS_API_KEY=...
-discli voice speak "joining the call now"
-
-# Play a file or URL
-discli voice play /path/to/file.mp3
-discli voice play https://example.com/stream.opus
-discli voice stop / pause / resume
-
-# Transcribe everyone live (streaming STT)
-export DEEPGRAM_API_KEY=...
-discli voice listen --continuous
-
-# Debug: capture raw 48kHz stereo PCM per speaker to WAV files
-discli voice capture --duration 15
-
-# Read-only voice lookups (no `voice` extra needed)
-discli voice status
-discli voice where alice
-discli voice members "general"
-```
-
-For a full live meeting transcriber with Claude-generated summary on exit, see `examples/meeting_transcriber.py`:
-
-```bash
-pip install 'discord-cli-agent[voice,deepgram]' claude-agent-sdk
-python examples/meeting_transcriber.py <voice_channel_id>
-```
-
-### Live Event Monitoring
-
-```bash
-# Listen to everything
-discli listen
-
-# Filter by server/channel
-discli listen --server "My Server" --channel #general
-
-# Filter by event type
-discli listen --events messages,reactions,voice
-
-# Include bot messages (ignored by default)
-discli listen --include-bots
-
-# JSON output for piping to an agent
-discli --json listen --events messages
-```
-
-Supported event types: `messages`, `reactions`, `members`, `edits`, `deletes`, `voice`
-
-### Persistent Bot (serve)
-
-`discli serve` keeps a persistent connection and communicates via stdin/stdout JSONL — ideal for building full Discord bots.
-
-```bash
-# Start with slash commands and presence
-discli serve --slash-commands commands.json --status online --activity playing --activity-text "Helping"
-
-# Filter by server
-discli serve --server "My Server"
-```
-
-**Events (stdout):**
-```json
-{"event": "ready", "bot_id": "123", "bot_name": "MyBot#1234"}
-{"event": "message", "channel_id": "456", "author": "alice", "content": "hello", "mentions_bot": true, ...}
-{"event": "slash_command", "command": "paw", "args": {"message": "hi"}, "interaction_token": "abc123", ...}
-{"event": "voice_state", "action": "joined", "member": "alice", "channel": "General", "channel_id": "456"}
-{"event": "component_interaction", "custom_id": "ok_btn", "user": "alice", "interaction_token": "itk"}
-{"event": "modal_submit", "custom_id": "myform", "fields": {"name": "Alice"}, "interaction_token": "itk"}
-```
-
-**Commands (stdin):**
-```json
-{"action": "send", "channel_id": "456", "content": "Hello!", "req_id": "1"}
-{"action": "send", "channel_id": "456", "content": "Rich!", "embed": {"title": "T", "description": "D", "color": "ff0000"}}
-{"action": "send", "channel_id": "456", "content": "Click!", "components": [[{"type": "button", "label": "OK", "style": "primary", "custom_id": "ok_btn"}]]}
-{"action": "reply", "channel_id": "456", "message_id": "789", "content": "Hi!", "req_id": "2"}
-{"action": "typing_start", "channel_id": "456"}
-{"action": "typing_stop", "channel_id": "456"}
-{"action": "presence", "status": "idle", "activity_type": "watching", "activity_text": "the logs"}
-{"action": "channel_edit", "channel_id": "456", "topic": "New topic", "slowmode": 10}
-{"action": "forum_post", "channel_id": "456", "title": "Post Title", "content": "Body"}
-{"action": "webhook_create", "channel_id": "456", "name": "My Webhook"}
-{"action": "event_create", "guild_id": "111", "name": "Hangout", "start_time": "2026-04-01T18:00:00"}
-```
-
-**Streaming edits** (bot response builds in real-time, edited every 1.5s):
-```json
-{"action": "stream_start", "channel_id": "456", "reply_to": "789"}
-{"action": "stream_chunk", "stream_id": "s1", "content": "new tokens..."}
-{"action": "stream_end", "stream_id": "s1"}
-```
-
-**Slash commands** are defined in a JSON file:
-```json
-[
-  {"name": "paw", "description": "Talk to the bot", "params": [{"name": "message", "type": "string"}]},
-  {"name": "new", "description": "Start a new session"}
-]
-```
-
-## Security & Permissions
-
-### Confirmation Prompts
-
-Destructive actions (kick, ban, delete) require confirmation by default:
-
-```bash
-$ discli member kick "My Server" spammer
-Warning: Destructive action: member kick (spammer from My Server). Continue? [y/N]
-
-# Skip with --yes for automation
-$ discli -y member kick "My Server" spammer --reason "Spam"
-```
-
-### Permission Profiles
-
-Restrict which commands an agent can use:
-
-```bash
-# List available profiles
-discli permission profiles
-
-# Set a profile (persisted)
-discli permission set chat        # Messages, reactions, threads only, no moderation
-discli permission set readonly    # Can only read, no sending or deleting
-discli permission set moderation  # Full access including kick/ban
-discli permission set full        # Everything (default)
-
-# Override per invocation (not persisted)
-discli --profile chat message send #general "hello"
-DISCLI_PROFILE=readonly discli message list #general
-```
-
-| Profile | Can Send | Can Delete | Can Kick/Ban | Can Manage Channels |
-|---------|----------|------------|--------------|---------------------|
-| `full` | Yes | Yes | Yes | Yes |
-| `moderation` | Yes | Yes | Yes | Yes |
-| `chat` | Yes | No | No | No |
-| `readonly` | No | No | No | No |
-
-### User Permission Checking
-
-Verify the Discord user who triggered an action actually has the required permissions:
-
-```bash
-discli member kick "My Server" target --triggered-by 123456789
-```
-
-This checks that user `123456789` has `kick_members` permission in the server. Server owners and administrators always pass. If the user can't be found in cache, it fetches from the API. If that also fails, it warns but doesn't block.
-
-### Audit Log
-
-Every destructive action is logged to `~/.discli/audit.log`:
-
-```bash
-# View recent actions
-discli audit show --limit 20
-
-# JSON output
-discli --json audit show
-
-# Clear the log
-discli audit clear
-```
-
-### Rate Limiting
-
-Built-in rate limiter (5 calls per 5 seconds) on destructive actions to prevent Discord API bans. If the limit is hit, discli waits automatically.
-
-## Resolving Identifiers
-
-All commands accept both **IDs** and **names**:
-
-| Type | By ID | By Name |
-|------|-------|---------|
-| Channel | `123456789` | `#general` |
-| Server | `123456789` | `My Server` |
-| Member | `123456789` | `alice` |
-| Role | `123456789` | `Moderator` |
-| Thread | `123456789` | `Support Ticket` |
-| User (DM) | `123456789` | `alice` |
-
-## JSON Output
-
-Add `--json` **before the subcommand** for machine-readable output:
-
-```bash
-$ discli --json message list #general --limit 1
-[
-  {
-    "id": "123456789",
-    "author": "alice",
-    "content": "Hello!",
-    "timestamp": "2026-03-14T10:32:00+00:00",
-    "attachments": [],
-    "embeds": []
-  }
-]
-
-$ discli --json listen --events messages
-{"event": "message", "server": "My Server", "channel": "general", "channel_id": "111", "author": "alice", "author_id": "222", "content": "hello", "message_id": "333", "mentions_bot": false, "attachments": []}
-```
-
-## Examples
-
-### AI Agent (recommended)
-
-The all-in-one AI agent uses Claude Agent SDK + `discli serve` for full Discord control — messages, embeds, buttons, selects, modals, streaming, channels, roles, and more:
-
-```bash
-pip install discord-cli-agent claude-agent-sdk
-discli config set token YOUR_BOT_TOKEN
-python examples/ai_serve_agent.py
-```
-
-Then @mention the bot in Discord:
-```
-@bot send a blue embed with title "Status" and fields Online=42, Messages=1337
-@bot send 3 buttons: Accept (green), Decline (red), Maybe (grey)
-@bot send a color picker dropdown with Red, Blue, Green
-@bot send a button that opens a feedback form with Name and Message fields
-@bot create a channel called announcements
-@bot list all roles
-@bot create a poll: "Best language?" with Python, Rust, Go
-```
-
-Uses your existing Claude Code authentication. No API key needed.
-
-### All Examples
-
-| Example | Description |
-|---------|-------------|
-| [`ai_serve_agent.py`](examples/ai_serve_agent.py) | **All-in-one AI agent** — Claude + serve mode, buttons, selects, modals, embeds, streaming |
-| [`component_test_bot.py`](examples/component_test_bot.py) | Interactive component test bot — buttons, selects, modals, embeds, streaming |
-| [`serve_bot.py`](examples/serve_bot.py) | Echo bot using `discli serve` with streaming and slash commands |
-| [`claude_agent.py`](examples/claude_agent.py) | Lightweight AI agent using Claude Agent SDK + `discli listen` |
-| [`moderation_bot.py`](examples/moderation_bot.py) | Keyword filter with warnings and kick escalation |
-| [`support_agent.py`](examples/support_agent.py) | Rule-based support bot that replies to @mentions |
-| [`thread_support_agent.py`](examples/thread_support_agent.py) | Thread-per-ticket support system |
-| [`channel_logger.sh`](examples/channel_logger.sh) | Log messages to JSONL file |
-| [`reaction_poll.sh`](examples/reaction_poll.sh) | Emoji reaction poll |
-
-### Agent Instructions
-
-The [`agents/discord-agent.md`](agents/discord-agent.md) file contains the full discli command reference for AI agents. Drop it into any agent's system prompt. Works with Claude, OpenAI, LangChain, or any framework.
-
-### Claude Code Skills
-
-Install skills for building Discord bots with discli:
-
-```bash
-npx skills add DevRohit06/discli@discord-bot          # Bot scaffolding + JSONL reference
-npx skills add DevRohit06/discli@discord-agent         # AI agent patterns (Claude/OpenAI)
-npx skills add DevRohit06/discli@discord-moderation    # Auto-mod, keyword filtering
-npx skills add DevRohit06/discli@discord-support-bot   # Helpdesk, thread-per-ticket
-npx skills add DevRohit06/discli@discord-welcome       # Onboarding, role buttons
-npx skills add DevRohit06/discli@discord-logger        # Activity logging, analytics
-npx skills add DevRohit06/discli@discord-slash-commands # Slash command generator
-```
-
-### Quick start: Bash agent
-
-```bash
-discli --json listen --events messages | while read -r event; do
-  mentions_bot=$(echo "$event" | jq -r '.mentions_bot')
-  if [ "$mentions_bot" = "true" ]; then
-    channel_id=$(echo "$event" | jq -r '.channel_id')
-    message_id=$(echo "$event" | jq -r '.message_id')
-    discli typing "$channel_id" --duration 3 &
-    discli message reply "$channel_id" "$message_id" "Hello! How can I help?"
-  fi
-done
-```
-
-## Project Structure
-
-```
-discli/
-├── src/discli/
-│   ├── cli.py           # Root click group + permission/audit commands
-│   ├── client.py        # Async discord.py wrapper
-│   ├── config.py        # Token storage (~/.discli/config.json)
-│   ├── security.py      # Permissions, audit logging, rate limiting
-│   ├── utils.py         # Output formatting, resolvers
-│   └── commands/        # Command groups (message, channel, serve, etc.)
-├── agents/
-│   └── discord-agent.md # Full command reference for AI agents
-├── skills/              # Claude Code skills for skills.sh
-├── examples/            # Ready-to-run agent examples
-├── installers/          # curl-friendly install scripts
-├── tests/               # Unit tests
-└── pyproject.toml
-```
+Full architecture overview: [`docs/architecture/overview.mdx`](docs/architecture/overview.mdx).
 
 ## Configuration
-
-Config is stored at `~/.discli/config.json`.
 
 ```bash
 discli config set token YOUR_TOKEN
@@ -594,12 +183,21 @@ discli config show
 discli config show --json
 ```
 
-Token resolution order: `--token` flag > `DISCORD_BOT_TOKEN` env var > config file.
+Stored at `~/.discli/config.json`. Token resolution order: `--token` flag → `DISCORD_BOT_TOKEN` env var → config file.
+
+## Documentation
+
+Full docs live in [`docs/`](docs/) (Lito-based, sourced as `.mdx`):
+
+- [Installation](docs/getting-started/installation.mdx) · [Quickstart](docs/getting-started/quickstart.mdx) · [Configuration](docs/getting-started/configuration.mdx)
+- Guides: [CLI Usage](docs/guides/cli-usage.mdx) · [Serve Mode](docs/guides/serve-mode.mdx) · [Voice](docs/guides/voice.mdx) · [Components & Modals](docs/guides/components-modals.mdx) · [Building Agents](docs/guides/building-agents.mdx)
+- Reference: [CLI Commands](docs/reference/cli-commands.mdx) · [Serve Actions](docs/reference/serve-actions.mdx) · [Serve Events](docs/reference/serve-events.mdx) · [Permission Profiles](docs/reference/permission-profiles.mdx)
+- [Troubleshooting](docs/troubleshooting/common-issues.mdx)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, how to add commands, and release process.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Tests run via `uv run pytest tests/`; conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
