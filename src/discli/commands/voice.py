@@ -354,6 +354,10 @@ def voice_capture(ctx, server, duration, output_dir):
     voice_recv delivered to the sink. Use this to confirm the bot is actually
     receiving audio — if the WAV is empty or only ~20 ms long, the problem is
     at the capture layer, not in STT/downmix.
+
+    Privacy note: the output WAVs contain raw decoded audio of everyone who
+    spoke in the channel during the capture window. Treat them like any
+    voice recording — don't share without consent.
     """
 
     def action(client):
@@ -371,6 +375,16 @@ def voice_capture(ctx, server, duration, output_dir):
                 raise click.ClickException(
                     "Active voice client doesn't support listening. "
                     "Reconnect via 'discli voice join' (uses VoiceRecvClient)."
+                )
+
+            # voice_recv raises if a sink is already attached. Stop the active
+            # listener (e.g. from `discli voice listen` or a serve session)
+            # before attaching the capture sink.
+            if getattr(vc, "is_listening", lambda: False)():
+                raise click.ClickException(
+                    "Another listening session is already active on this voice "
+                    "client. Stop it first ('discli voice listen' Ctrl+C, or "
+                    "the equivalent serve action) before running capture."
                 )
 
             out_dir = (

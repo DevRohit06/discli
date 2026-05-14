@@ -16,6 +16,82 @@ class VoiceError(Exception):
     """Raised for voice operation failures."""
 
 
+def install_voice_recv_patches() -> bool:
+    """Monkeypatch discord-ext-voice-recv to handle DAVE and survive bad packets.
+
+    Idempotent — safe to call multiple times. Returns True if the patches are
+    in place (either installed now or previously). Returns False only if
+    voice_recv / davey aren't importable at all.
+
+    Two patches are installed on ``PacketDecoder``:
+
+    1. ``_decode_packet`` — calls ``davey.DaveSession.decrypt`` between the
+       SecretBox layer and libopus. Without this, DAVE-encrypted audio (the
+       default in modern Discord voice channels) decodes to garbage and
+       libopus rejects every packet as "corrupted stream".
+    2. ``pop_data`` — swallows ``OpusError`` so a single malformed packet
+       can't unwind ``PacketRouter._do_run`` and tear the listening session
+       down.
+    """
+    try:
+        from discord.ext.voice_recv.opus import PacketDecoder  # type: ignore[import]
+        from discord.opus import OpusError  # type: ignore[import]
+        import davey  # type: ignore[import]
+    except ImportError:
+        return False
+
+    if not getattr(PacketDecoder, "_discli_dave_patched", False):
+        _orig_decode_packet = PacketDecoder._decode_packet
+
+        def _dave_decode_packet(self, packet):
+            if packet:
+                try:
+                    vc = self.sink.voice_client
+                    conn = getattr(vc, "_connection", None)
+                    dave = getattr(conn, "dave_session", None) if conn else None
+                    user_id = vc._get_id_from_ssrc(self.ssrc) or self._cached_id
+                    if dave is not None and user_id:
+                        try:
+                            decrypted = dave.decrypt(
+                                user_id, davey.MediaType.audio, packet.decrypted_data
+                            )
+                        except Exception as exc:
+                            if not getattr(self, "_discli_dave_logged", False):
+                                print(
+                                    f"[voice] DAVE decrypt raised on ssrc={self.ssrc}: "
+                                    f"{exc!r} — falling back to raw bytes",
+                                    flush=True,
+                                )
+                                self._discli_dave_logged = True
+                        else:
+                            if decrypted:
+                                packet.decrypted_data = decrypted
+                except Exception:
+                    pass
+            return _orig_decode_packet(self, packet)
+
+        PacketDecoder._decode_packet = _dave_decode_packet  # type: ignore[assignment]
+        PacketDecoder._discli_dave_patched = True  # type: ignore[attr-defined]
+
+    if not getattr(PacketDecoder, "_discli_pop_patched", False):
+        _orig_pop = PacketDecoder.pop_data
+
+        def _safe_pop_data(self, *, timeout: float = 0):
+            try:
+                return _orig_pop(self, timeout=timeout)
+            except OpusError as exc:
+                print(
+                    f"[voice] skipping bad opus packet on ssrc={self.ssrc}: {exc!r}",
+                    flush=True,
+                )
+                return None
+
+        PacketDecoder.pop_data = _safe_pop_data  # type: ignore[assignment]
+        PacketDecoder._discli_pop_patched = True  # type: ignore[attr-defined]
+
+    return True
+
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "tts_provider": "elevenlabs",
     "tts_voice": "default",
@@ -38,10 +114,11 @@ class AudioPlayer:
 
     def start(self) -> None:
         """Create the background player loop task."""
-        self._task = asyncio.get_event_loop().create_task(self._player_loop())
+        self._task = asyncio.get_running_loop().create_task(self._player_loop())
 
     async def _player_loop(self) -> None:
         """Pop sources from queue and play them sequentially."""
+        loop = asyncio.get_running_loop()
         while True:
             source = await self._queue.get()
             if source is None:
@@ -55,7 +132,7 @@ class AudioPlayer:
             def after_play(error: Exception | None) -> None:
                 if error:
                     pass  # swallow playback errors; loop continues
-                asyncio.get_event_loop().call_soon_threadsafe(done_event.set)
+                loop.call_soon_threadsafe(done_event.set)
 
             self._vc.play(wrapped, after=after_play)
             await done_event.wait()
@@ -164,7 +241,7 @@ class AudioListener:
         self._running = False
 
     def start(self) -> None:
-        """Begin listening via discord-ext-voice-recv (BasicSink callback)."""
+        """Begin listening via discord-ext-voice-recv."""
         self._running = True
 
         try:
@@ -184,108 +261,21 @@ class AudioListener:
             )
             return
 
-        # voice_recv 0.5.2a179 strips the legacy SecretBox layer but does not
-        # know about DAVE (Discord's end-to-end voice encryption). After the
-        # DAVE handshake completes, every Opus packet is wrapped in DAVE and
-        # libopus rejects it as "corrupted stream". Insert a DAVE decrypt step
-        # between SecretBox decryption and libopus.
-        try:
-            from discord.ext.voice_recv.opus import PacketDecoder  # type: ignore[import]
-            from discord.opus import OpusError  # type: ignore[import]
-            import davey  # type: ignore[import]
+        if not install_voice_recv_patches():
+            print(
+                "[voice] failed to install voice_recv patches — listening may fail",
+                flush=True,
+            )
 
-            if not getattr(PacketDecoder, "_discli_dave_patched", False):
-                _orig_decode_packet = PacketDecoder._decode_packet
+        # `audioop` is in stdlib through 3.12 and provided by audioop-lts on 3.13+
+        # (declared in the [voice] extra). Native C, ~100× faster than the
+        # pure-Python loop this replaced.
+        import audioop
 
-                def _dave_decode_packet(self, packet):  # type: ignore[no-redef]
-                    if packet:
-                        try:
-                            vc = self.sink.voice_client
-                            conn = getattr(vc, "_connection", None)
-                            dave = getattr(conn, "dave_session", None) if conn else None
-                            user_id = (
-                                vc._get_id_from_ssrc(self.ssrc)
-                                or self._cached_id
-                            )
-                            if dave is not None and user_id:
-                                try:
-                                    decrypted = dave.decrypt(
-                                        user_id,
-                                        davey.MediaType.audio,
-                                        packet.decrypted_data,
-                                    )
-                                except Exception as exc:
-                                    # Log once per ssrc so a persistent
-                                    # mismatch is visible without flooding.
-                                    if not getattr(self, "_discli_dave_logged", False):
-                                        print(
-                                            f"[voice] DAVE decrypt raised on ssrc={self.ssrc}: "
-                                            f"{exc!r} — falling back to raw bytes",
-                                            flush=True,
-                                        )
-                                        self._discli_dave_logged = True
-                                else:
-                                    if decrypted:
-                                        packet.decrypted_data = decrypted
-                        except Exception:
-                            pass
-                    return _orig_decode_packet(self, packet)
-
-                PacketDecoder._decode_packet = _dave_decode_packet  # type: ignore[assignment]
-                PacketDecoder._discli_dave_patched = True  # type: ignore[attr-defined]
-        except Exception as _exc:
-            print(f"[voice] failed to install DAVE patch: {_exc!r}", flush=True)
-
-        # Independent of DAVE: a single bad packet shouldn't kill the entire
-        # listening session. Wrap pop_data so OpusErrors skip the packet
-        # instead of bubbling out of PacketRouter._do_run.
-        try:
-            from discord.ext.voice_recv.opus import PacketDecoder  # type: ignore[import]
-            from discord.opus import OpusError  # type: ignore[import]
-
-            if not getattr(PacketDecoder, "_discli_pop_patched", False):
-                _orig_pop = PacketDecoder.pop_data
-
-                def _safe_pop_data(self, *, timeout: float = 0):  # type: ignore[no-redef]
-                    try:
-                        return _orig_pop(self, timeout=timeout)
-                    except OpusError as exc:
-                        print(
-                            f"[voice] skipping bad opus packet on ssrc={self.ssrc}: "
-                            f"{exc!r}",
-                            flush=True,
-                        )
-                        return None
-
-                PacketDecoder.pop_data = _safe_pop_data  # type: ignore[assignment]
-                PacketDecoder._discli_pop_patched = True  # type: ignore[attr-defined]
-        except Exception as _exc:
-            print(f"[voice] failed to patch PacketDecoder.pop_data: {_exc!r}", flush=True)
-
-        try:
-            self._loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._loop = asyncio.get_event_loop()
-
+        self._loop = asyncio.get_running_loop()
         loop = self._loop
         enqueue = self._enqueue
         packet_counts: dict[int, int] = {}
-
-        def _stereo_to_mono(pcm: bytes) -> bytes:
-            if len(pcm) < 4 or len(pcm) % 4 != 0:
-                return pcm
-            out = bytearray(len(pcm) // 2)
-            mv = memoryview(pcm)
-            for i in range(0, len(pcm), 4):
-                l = int.from_bytes(mv[i : i + 2], "little", signed=True)
-                r = int.from_bytes(mv[i + 2 : i + 4], "little", signed=True)
-                m = (l + r) // 2
-                if m > 32767:
-                    m = 32767
-                elif m < -32768:
-                    m = -32768
-                out[i // 2 : i // 2 + 2] = m.to_bytes(2, "little", signed=True)
-            return bytes(out)
 
         # Subclass AudioSink directly. voice_recv.BasicSink(callback) hits an
         # upstream issue where the callback stops firing after the first packet
@@ -312,7 +302,8 @@ class AudioListener:
                         packet_counts[uid] = 0
                         print(f"[voice] receiving audio from uid={uid}", flush=True)
                     packet_counts[uid] += 1
-                    mono = _stereo_to_mono(data.pcm)
+                    # 48 kHz stereo s16le → mono s16le. Native C in audioop.
+                    mono = audioop.tomono(data.pcm, 2, 0.5, 0.5)
                     loop.call_soon_threadsafe(enqueue, uid, mono)
                 except Exception as exc:
                     print(
@@ -398,20 +389,6 @@ class AudioListener:
                     f"text={result.text!r}",
                     flush=True,
                 )
-                # Append finalized transcripts to a tidy meeting log so the
-                # user has a clean output separate from diagnostic noise.
-                if result.is_final and result.text.strip():
-                    try:
-                        from datetime import datetime
-                        from pathlib import Path
-                        log_dir = Path.home() / ".discli" / "transcripts"
-                        log_dir.mkdir(parents=True, exist_ok=True)
-                        log_file = log_dir / f"guild-{self._vc.guild.id}.log"
-                        with log_file.open("a", encoding="utf-8") as f:
-                            ts = datetime.now().strftime("%H:%M:%S")
-                            f.write(f"[{ts}] uid={uid}: {result.text}\n")
-                    except Exception as exc:
-                        print(f"[voice] failed to write transcript: {exc!r}", flush=True)
                 try:
                     self._on_transcription(str(uid), result)
                 except Exception as exc:

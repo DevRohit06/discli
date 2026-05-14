@@ -108,6 +108,8 @@ async def run(channel_id: int, stt_provider: str) -> None:
             sys.exit(f"Channel {channel_id} not found.")
         except discord.Forbidden:
             sys.exit(f"Bot does not have access to channel {channel_id}.")
+        except discord.HTTPException as exc:
+            sys.exit(f"Discord API error fetching channel {channel_id}: {exc!r}")
 
     if not isinstance(channel, discord.VoiceChannel):
         sys.exit(
@@ -185,12 +187,12 @@ async def run(channel_id: int, stt_provider: str) -> None:
         print("\nStopping listener…", flush=True)
         try:
             engine.listen_stop(channel.guild.id)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"listen_stop error: {exc!r}", file=sys.stderr, flush=True)
         try:
             await engine.disconnect(channel.guild.id)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"disconnect error: {exc!r}", file=sys.stderr, flush=True)
 
         if transcript_lines:
             print(f"Generating summary from {len(transcript_lines)} line(s)…", flush=True)
@@ -203,13 +205,15 @@ async def run(channel_id: int, stt_provider: str) -> None:
 
         try:
             await client.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"client.close error: {exc!r}", file=sys.stderr, flush=True)
         client_task.cancel()
         try:
             await client_task
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError:
             pass
+        except Exception as exc:
+            print(f"client_task shutdown error: {exc!r}", file=sys.stderr, flush=True)
 
 
 async def _write_summary(
