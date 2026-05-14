@@ -116,6 +116,27 @@ discli event create "server" "Voice Hangout" "2026-04-01T18:00:00" --channel #vo
 discli event delete "server" <event_id>
 ```
 
+### Voice
+```bash
+discli voice join <voice_channel>
+discli voice leave <voice_channel>
+discli voice speak <voice_channel> "text" --tts elevenlabs|openai --voice "voice-id"
+discli voice play <voice_channel> path/to/audio.mp3
+discli voice stop <voice_channel>
+discli voice pause <voice_channel>
+discli voice resume <voice_channel>
+discli voice listen <voice_channel> --stt deepgram|openai --duration 10
+discli voice status <voice_channel>
+discli voice config <voice_channel> --tts elevenlabs --stt deepgram --vad enabled
+```
+
+### Interactive
+```bash
+discli interact modal <channel> <message_id> --title "Form" --custom-id "myform" --field "name::string::true" --field "email::string::true"
+discli interact workflow <channel> <message_id> --workflow-id "workflow123"
+discli interact dashboard <channel> --dashboard-id "dash1" --data '{"key": "value"}'
+```
+
 ### Live Monitoring
 ```bash
 discli listen --events messages,reactions,members,edits,deletes,voice
@@ -127,7 +148,7 @@ discli listen --server "server name" --channel "#channel"
 ```bash
 discli serve --slash-commands commands.json --status online
 ```
-**stdin commands:** `send`, `reply`, `edit`, `delete`, `typing_start`, `typing_stop`, `presence`, `reaction_add`, `reaction_remove`, `stream_start`, `stream_chunk`, `stream_end`, `interaction_followup`, `modal_send`, `channel_edit`, `channel_set_permissions`, `forum_post`, `thread_archive`, `thread_rename`, `thread_add_member`, `thread_remove_member`, `member_timeout`, `role_edit`, `reaction_users`, `poll_results`, `poll_end`, `webhook_list`, `webhook_create`, `webhook_delete`, `event_list`, `event_create`, `message_bulk_delete`
+**stdin commands:** `send`, `reply`, `edit`, `delete`, `typing_start`, `typing_stop`, `presence`, `reaction_add`, `reaction_remove`, `stream_start`, `stream_chunk`, `stream_end`, `interaction_followup`, `modal_send`, `channel_edit`, `channel_set_permissions`, `forum_post`, `thread_archive`, `thread_rename`, `thread_add_member`, `thread_remove_member`, `member_timeout`, `role_edit`, `reaction_users`, `poll_results`, `poll_end`, `webhook_list`, `webhook_create`, `webhook_delete`, `event_list`, `event_create`, `message_bulk_delete`, `voice_connect`, `voice_disconnect`, `voice_move`, `voice_speak`, `voice_play`, `voice_stop`, `voice_pause`, `voice_resume`, `voice_listen_start`, `voice_listen_stop`, `voice_status`, `voice_set_config`, `workflow_start`, `workflow_cancel`, `dashboard_create`, `dashboard_update`, `dashboard_delete`
 
 **stdin examples:**
 ```json
@@ -152,15 +173,35 @@ discli serve --slash-commands commands.json --status online
 {"action": "event_list", "guild_id": "111"}
 {"action": "event_create", "guild_id": "111", "name": "Hangout", "start_time": "2026-04-01T18:00:00", "location": "Park", "end_time": "2026-04-01T20:00:00"}
 {"action": "message_bulk_delete", "channel_id": "456", "message_ids": ["111", "222", "333"]}
+{"action": "voice_connect", "channel_id": "789"}
+{"action": "voice_disconnect", "channel_id": "789"}
+{"action": "voice_speak", "channel_id": "789", "text": "Hello everyone!", "tts": "elevenlabs", "voice": "alloy"}
+{"action": "voice_play", "channel_id": "789", "audio_url": "https://example.com/audio.mp3"}
+{"action": "voice_stop", "channel_id": "789"}
+{"action": "voice_pause", "channel_id": "789"}
+{"action": "voice_resume", "channel_id": "789"}
+{"action": "voice_listen_start", "channel_id": "789", "stt": "deepgram", "duration": 30}
+{"action": "voice_listen_stop", "channel_id": "789"}
+{"action": "voice_status", "channel_id": "789"}
+{"action": "voice_set_config", "channel_id": "789", "tts": "openai", "stt": "openai", "vad_enabled": true}
+{"action": "workflow_start", "guild_id": "111", "workflow_id": "wf123", "context": {"key": "value"}}
+{"action": "workflow_cancel", "guild_id": "111", "workflow_id": "wf123"}
+{"action": "dashboard_create", "guild_id": "111", "dashboard_id": "dash1", "data": {"title": "Dashboard"}}
+{"action": "dashboard_update", "guild_id": "111", "dashboard_id": "dash1", "data": {"title": "Updated Dashboard"}}
+{"action": "dashboard_delete", "guild_id": "111", "dashboard_id": "dash1"}
 ```
 
-**stdout events:** `ready`, `message`, `slash_command`, `message_edit`, `message_delete`, `reaction_add`, `reaction_remove`, `member_join`, `member_remove`, `voice_state`, `component_interaction`, `modal_submit`, `disconnected`, `resumed`, `response`, `error`
+**stdout events:** `ready`, `message`, `slash_command`, `message_edit`, `message_delete`, `reaction_add`, `reaction_remove`, `member_join`, `member_remove`, `voice_state`, `voice_speech_detected`, `voice_audio_received`, `component_interaction`, `modal_submit`, `workflow_event`, `dashboard_interaction`, `disconnected`, `resumed`, `response`, `error`
 
 **stdout event examples:**
 ```json
 {"event": "voice_state", "action": "joined", "member": "alice", "channel": "General", "channel_id": "456"}
+{"event": "voice_speech_detected", "channel_id": "789", "text": "What's up?", "confidence": 0.95, "language": "en"}
+{"event": "voice_audio_received", "channel_id": "789", "duration_ms": 2000, "member": "bob"}
 {"event": "component_interaction", "custom_id": "ok_btn", "user": "alice", "interaction_token": "itk"}
 {"event": "modal_submit", "custom_id": "myform", "fields": {"name": "Alice"}, "interaction_token": "itk"}
+{"event": "workflow_event", "workflow_id": "wf123", "event_type": "step_completed", "data": {"step": "validate"}}
+{"event": "dashboard_interaction", "dashboard_id": "dash1", "action": "button_click", "user": "charlie"}
 {"event": "disconnected"}
 {"event": "resumed"}
 ```

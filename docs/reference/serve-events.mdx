@@ -314,6 +314,72 @@ Emitted when a member's voice state changes (joins, leaves, moves between, or up
 
 ---
 
+## Voice events
+
+Voice events are emitted by the engine when the bot connects, plays audio, or transcribes speech. Each has the standard `event` field plus a `guild_id`.
+
+### voice_connected
+
+Emitted after the bot joins a voice channel.
+
+```json
+{"event": "voice_connected", "guild_id": "767327865100304394", "channel_id": "1016638171854938152"}
+```
+
+### voice_disconnected
+
+Emitted after the bot leaves a voice channel.
+
+```json
+{"event": "voice_disconnected", "guild_id": "767327865100304394"}
+```
+
+### voice_playback_started
+
+Emitted when TTS or file playback begins.
+
+```json
+{"event": "voice_playback_started", "guild_id": "767327865100304394", "type": "tts"}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | `tts` or `file` |
+| `source` | string | Source URL/path (for `file` type) |
+
+### voice_playback_finished
+
+Emitted when playback completes or is stopped.
+
+```json
+{"event": "voice_playback_finished", "guild_id": "767327865100304394"}
+```
+
+### voice_speech_detected
+
+Emitted when STT returns a finalised transcription for a speaker. Interim partials are not surfaced — only finals.
+
+```json
+{
+  "event": "voice_speech_detected",
+  "guild_id": "767327865100304394",
+  "channel_id": "1016638171854938152",
+  "user_id": "743173584935190620",
+  "text": "okay let's get started",
+  "confidence": 0.94,
+  "is_final": true
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `user_id` | string | Speaker's user snowflake ID |
+| `text` | string | Finalised transcript |
+| `confidence` | number | Provider-reported confidence (`0.0` – `1.0`) |
+| `is_final` | bool | Always `true` for this event (interim partials are filtered out) |
+
+---
+
 ## component_interaction
 
 Emitted when a user interacts with a message component (button click, select menu choice). Respond using `interaction_respond`, `interaction_edit`, or `modal_send` with the `interaction_token`.
@@ -444,7 +510,7 @@ Use the `--events` option to limit which events are emitted. Pass a comma-separa
 | `deletes` | `message_delete` |
 | `reactions` | `reaction_add`, `reaction_remove` |
 | `members` | `member_join`, `member_remove` |
-| `voice` | `voice_state` |
+| `voice` | `voice_state`, `voice_connected`, `voice_disconnected`, `voice_playback_started`, `voice_playback_finished`, `voice_speech_detected` |
 
 The `ready`, `slash_command`, `slash_commands_synced`, `component_interaction`, `modal_submit`, `response`, `error`, `disconnected`, `resumed`, and `shutdown` events are always emitted regardless of the filter.
 
