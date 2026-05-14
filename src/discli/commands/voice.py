@@ -288,7 +288,7 @@ def voice_listen(ctx, server, duration, continuous):
             transcriptions = []
 
             def on_event(event: dict):
-                if event.get("event") == "voice_transcription":
+                if event.get("event") == "voice_speech_detected":
                     entry = {
                         "user_id": event.get("user_id"),
                         "text": event.get("text"),
@@ -332,6 +332,152 @@ def voice_listen(ctx, server, duration, continuous):
                     data,
                     plain_text=f"Captured {len(transcriptions)} transcription(s) in {guild.name}",
                 )
+
+        return _action(client)
+
+    run_discord(ctx, action)
+
+
+@voice_group.command("capture")
+@click.option("--server", default=None, help="Server name or ID.")
+@click.option("--duration", default=10, type=int, help="Capture duration in seconds.")
+@click.option(
+    "--output-dir",
+    default=None,
+    help="Output directory (default: ~/.discli/debug-capture).",
+)
+@click.pass_context
+def voice_capture(ctx, server, duration, output_dir):
+    """Capture raw 48 kHz stereo PCM to WAV files (debug helper).
+
+    Bypasses STT and writes one .wav per speaker containing exactly the PCM
+    voice_recv delivered to the sink. Use this to confirm the bot is actually
+    receiving audio — if the WAV is empty or only ~20 ms long, the problem is
+    at the capture layer, not in STT/downmix.
+    """
+
+    def action(client):
+        async def _action(client):
+            import threading
+            import wave
+            from pathlib import Path
+
+            from discord.ext import voice_recv
+
+            guild = _find_active_voice_guild(client, server)
+            vc = guild.voice_client
+
+            if not hasattr(vc, "listen"):
+                raise click.ClickException(
+                    "Active voice client doesn't support listening. "
+                    "Reconnect via 'discli voice join' (uses VoiceRecvClient)."
+                )
+
+            out_dir = (
+                Path(output_dir)
+                if output_dir
+                else (Path.home() / ".discli" / "debug-capture")
+            )
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            buffers: dict[int, bytearray] = {}
+            packet_counts: dict[int, int] = {}
+            lock = threading.Lock()
+
+            class _CaptureSink(voice_recv.AudioSink):
+                def __init__(self) -> None:
+                    super().__init__()
+
+                def wants_opus(self) -> bool:
+                    return False
+
+                def write(self, user, data) -> None:
+                    uid = user.id if user else 0
+                    with lock:
+                        buf = buffers.get(uid)
+                        if buf is None:
+                            buf = bytearray()
+                            buffers[uid] = buf
+                            packet_counts[uid] = 0
+                        buf.extend(data.pcm)
+                        packet_counts[uid] += 1
+
+                def cleanup(self) -> None:
+                    pass
+
+            sink = _CaptureSink()
+            vc.listen(sink)
+            click.echo(
+                f"Capturing for {duration}s in #{vc.channel.name}… "
+                f"(have people talk now)",
+                err=True,
+            )
+
+            try:
+                await asyncio.sleep(duration)
+            finally:
+                for method in ("stop_recording", "stop_listening"):
+                    fn = getattr(vc, method, None)
+                    if callable(fn):
+                        try:
+                            fn()
+                        except Exception:
+                            pass
+                        break
+
+            results = []
+            with lock:
+                for uid, buf in buffers.items():
+                    member = guild.get_member(uid)
+                    safe_name = "".join(
+                        c if c.isalnum() or c in "-_" else "_"
+                        for c in (member.display_name if member else str(uid))
+                    )
+                    fpath = out_dir / f"{uid}-{safe_name}.wav"
+                    with wave.open(str(fpath), "wb") as wf:
+                        wf.setnchannels(2)
+                        wf.setsampwidth(2)
+                        wf.setframerate(48000)
+                        wf.writeframes(bytes(buf))
+                    # 48 kHz stereo int16 = 4 bytes per frame.
+                    duration_ms = int(len(buf) / 4 / 48000 * 1000) if buf else 0
+                    results.append(
+                        {
+                            "user_id": str(uid),
+                            "user_name": str(member) if member else None,
+                            "packets": packet_counts[uid],
+                            "bytes": len(buf),
+                            "duration_ms": duration_ms,
+                            "path": str(fpath),
+                        }
+                    )
+
+            data = {
+                "guild_id": str(guild.id),
+                "guild_name": guild.name,
+                "duration_seconds": duration,
+                "output_dir": str(out_dir),
+                "speakers": results,
+            }
+
+            if not results:
+                output(
+                    ctx,
+                    data,
+                    plain_text=(
+                        f"No audio captured in {duration}s. Sink received zero "
+                        f"packets — voice_recv is not delivering PCM to the bot."
+                    ),
+                )
+            else:
+                lines = [f"Captured to {out_dir}:"]
+                for r in results:
+                    lines.append(
+                        f"  - {r['user_name'] or r['user_id']}: "
+                        f"{r['packets']} packets, {r['bytes']} bytes, "
+                        f"~{r['duration_ms']} ms → {Path(r['path']).name}"
+                    )
+                output(ctx, data, plain_text="\n".join(lines))
 
         return _action(client)
 
