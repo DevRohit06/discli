@@ -16,6 +16,9 @@ from discli.commands.typing_cmd import typing_cmd
 from discli.commands.serve import serve_cmd
 from discli.commands.webhook import webhook_group
 from discli.commands.event import event_group
+from discli.commands.voice import voice_group
+from discli.commands.interact import interact_group
+from discli.commands.doctor import doctor_cmd
 
 
 @click.group()
@@ -53,6 +56,9 @@ main.add_command(typing_cmd)
 main.add_command(serve_cmd)
 main.add_command(webhook_group)
 main.add_command(event_group)
+main.add_command(voice_group)
+main.add_command(interact_group)
+main.add_command(doctor_cmd)
 
 
 # Permission management commands

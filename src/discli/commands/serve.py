@@ -12,7 +12,14 @@ import uuid
 
 import click
 import discord
-from discord import app_commands
+try:
+    from discord import app_commands  # discord.py
+    if not hasattr(app_commands, "CommandTree"):
+        # py-cord ships a different `app_commands` namespace without
+        # CommandTree — treat it as if discord.py app_commands isn't available.
+        app_commands = None  # type: ignore[assignment]
+except ImportError:
+    app_commands = None
 
 DISCORD_MSG_LIMIT = 2000
 STREAM_EDIT_INTERVAL = 1.5  # Discord rate limit on edits
@@ -50,14 +57,49 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         with open(slash_commands_file) as f:
             slash_defs = json.load(f)
 
+    # Load libopus so voice receive (discord-ext-voice-recv) can decode
+    # incoming audio. Without this, packets arrive but the decode step
+    # fails silently and AudioSink.write() never fires.
+    try:
+        if not discord.opus.is_loaded():
+            discord.opus._load_default()
+        print(f"[voice] opus loaded={discord.opus.is_loaded()}", flush=True)
+    except Exception as exc:
+        print(f"[voice] opus load failed: {exc!r} — voice receive will not work",
+              flush=True)
+
     intents = discord.Intents.all()
     client = discord.Client(intents=intents)
-    tree = app_commands.CommandTree(client)
+    tree = app_commands.CommandTree(client) if app_commands is not None else None
 
     # State
     typing_tasks: dict[str, asyncio.Task] = {}  # channel_id -> task
     streams: dict[str, dict] = {}  # stream_id -> stream state
     interactions: dict[str, discord.Interaction] = {}  # token -> interaction
+
+    # Voice engine (lazy init)
+    voice_engine = None
+
+    def _get_voice_engine():
+        nonlocal voice_engine
+        if voice_engine is None:
+            from discli.voice_engine import VoiceEngine
+            from discli.config import load_config
+            config = load_config()
+            voice_engine = VoiceEngine(config=config.get("voice", {}))
+            voice_engine.set_event_handler(emit)
+        return voice_engine
+
+    # Interactive engine (lazy init)
+    interact_engine = None
+
+    def _get_interact_engine():
+        nonlocal interact_engine
+        if interact_engine is None:
+            from discli.interact_engine import InteractEngine
+            interact_engine = InteractEngine()
+            interact_engine.set_event_handler(emit)
+        return interact_engine
 
     # ── Helpers ──────────────────────────────────────────────────────
 
@@ -401,6 +443,17 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             return
         if interaction.type == discord.InteractionType.component:
             data = interaction.data
+            custom_id = data.get("custom_id", "") if data else ""
+            # Route workflow/dashboard interactions to interact engine
+            if custom_id.startswith(("wf:", "dash:")):
+                engine = _get_interact_engine()
+                route = engine.route_custom_id(custom_id)
+                if route == "workflow":
+                    await engine.handle_workflow_interaction(interaction, custom_id)
+                    return
+                elif route == "dashboard":
+                    await engine.handle_dashboard_interaction(interaction, custom_id)
+                    return
             itk = str(uuid.uuid4())
             interactions[itk] = interaction
             # Don't defer here — let the agent choose: interaction_respond,
@@ -449,6 +502,18 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── Slash Commands ──────────────────────────────────────────────
 
     async def _register_slash_commands():
+        if tree is None or app_commands is None:
+            # Pycord uses bot.application_command instead of CommandTree;
+            # dynamic registration is not yet ported. Slash commands are
+            # secondary to voice for the meeting-transcription use case.
+            if slash_defs:
+                emit({
+                    "event": "error",
+                    "message": "slash command registration is not supported on py-cord yet — "
+                               "skipping. Install discord.py + discord-ext-voice-recv if needed.",
+                })
+            return
+
         import inspect
 
         _type_map = {"string": str, "integer": int, "number": float, "boolean": bool}
@@ -1647,6 +1712,290 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         event = await guild.create_scheduled_event(**kwargs)
         return {"ok": True, "event_id": str(event.id), "name": event.name}
 
+    # ── Voice Actions ──────────────────────────────────────────────
+
+    def _resolve_voice_guild_id(cmd: dict) -> str | int | None:
+        """Return a guild_id for voice actions.
+
+        Accepts either a ``guild_id`` directly, or a ``channel_id`` which is
+        resolved to the guild owning that voice channel. The agent-facing docs
+        use ``channel_id`` everywhere, so this lets callers omit guild_id.
+        """
+        gid = cmd.get("guild_id")
+        if gid:
+            return gid
+        channel_id = cmd.get("channel_id")
+        if channel_id is None:
+            return None
+        try:
+            ch = client.get_channel(int(channel_id))
+        except (TypeError, ValueError):
+            return None
+        if ch is None or not hasattr(ch, "guild"):
+            return None
+        return ch.guild.id
+
+    async def _action_voice_connect(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        channel_id = cmd.get("channel_id")
+        ch = client.get_channel(int(channel_id))
+        if not ch or not isinstance(ch, discord.VoiceChannel):
+            return {"error": f"Voice channel {channel_id} not found"}
+        await engine.connect(ch)
+        return {"ok": True, "channel_id": channel_id, "guild_id": str(ch.guild.id)}
+
+    async def _action_voice_disconnect(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        await engine.disconnect(guild_id)
+        return {"ok": True}
+
+    async def _action_voice_move(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        channel_id = cmd.get("channel_id")
+        ch = client.get_channel(int(channel_id))
+        if not ch or not isinstance(ch, discord.VoiceChannel):
+            return {"error": f"Voice channel {channel_id} not found"}
+        await engine.move(ch)
+        return {"ok": True, "channel_id": channel_id}
+
+    async def _action_voice_speak(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        # Per-call override: ``tts`` in the command swaps the provider for
+        # this (and subsequent) speak calls. Matches the documented schema.
+        tts = cmd.get("tts")
+        if tts and engine.config.get("tts_provider") != tts:
+            engine.update_config({"tts_provider": tts})
+            engine._tts = None  # force re-instantiation
+        await engine.speak(
+            guild_id,
+            cmd.get("text", ""),
+            voice=cmd.get("voice", "default"),
+            speed=cmd.get("speed", 1.0),
+        )
+        return {"ok": True}
+
+    async def _action_voice_play(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        await engine.play(guild_id, cmd.get("source") or cmd.get("audio_url", ""))
+        return {"ok": True}
+
+    async def _action_voice_stop(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        engine.stop(guild_id)
+        return {"ok": True}
+
+    async def _action_voice_pause(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        engine.pause(guild_id)
+        return {"ok": True}
+
+    async def _action_voice_resume(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        engine.resume(guild_id)
+        return {"ok": True}
+
+    async def _action_voice_listen_start(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        stt = cmd.get("stt")
+        if stt and engine.config.get("stt_provider") != stt:
+            engine.update_config({"stt_provider": stt})
+            engine._stt = None  # force re-instantiation
+        await engine.listen_start(guild_id)
+        return {"ok": True}
+
+    async def _action_voice_listen_stop(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        await engine.listen_stop(guild_id)
+        return {"ok": True}
+
+    async def _action_voice_status(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        return {"ok": True, "connections": engine.status()}
+
+    async def _action_voice_where(cmd: dict) -> dict:
+        """Find which voice channel a user is in. Does not require a voice connection."""
+        user_id = cmd.get("user_id")
+        guild_id = cmd.get("guild_id")
+        if not user_id:
+            return {"error": "Missing 'user_id'"}
+        try:
+            uid = int(user_id)
+        except (TypeError, ValueError):
+            return {"error": f"Invalid user_id: {user_id}"}
+
+        guilds = [client.get_guild(int(guild_id))] if guild_id else list(client.guilds)
+        matches = []
+        for guild in guilds:
+            if guild is None:
+                continue
+            vs = guild.voice_states.get(uid)
+            if vs is None:
+                continue
+            member = guild.get_member(uid)
+            ch = vs.channel
+            matches.append({
+                "user_id": str(uid),
+                "user_name": str(member) if member else None,
+                "guild_id": str(guild.id),
+                "guild_name": guild.name,
+                "channel_id": str(ch.id) if ch else None,
+                "channel_name": ch.name if ch else None,
+                "self_mute": vs.self_mute,
+                "self_deaf": vs.self_deaf,
+                "mute": vs.mute,
+                "deaf": vs.deaf,
+            })
+        return {"ok": True, "matches": matches}
+
+    async def _action_voice_members(cmd: dict) -> dict:
+        """List members currently in a voice channel. Does not require a voice connection."""
+        channel_id = cmd.get("channel_id")
+        if not channel_id:
+            return {"error": "Missing 'channel_id'"}
+        ch = client.get_channel(int(channel_id))
+        if not ch or not isinstance(ch, discord.VoiceChannel):
+            return {"error": f"Voice channel {channel_id} not found"}
+        members = []
+        for member in ch.members:
+            vs = member.voice
+            members.append({
+                "user_id": str(member.id),
+                "user_name": str(member),
+                "display_name": member.display_name,
+                "self_mute": vs.self_mute if vs else False,
+                "self_deaf": vs.self_deaf if vs else False,
+                "mute": vs.mute if vs else False,
+                "deaf": vs.deaf if vs else False,
+            })
+        return {
+            "ok": True,
+            "channel_id": str(ch.id),
+            "channel_name": ch.name,
+            "guild_id": str(ch.guild.id),
+            "count": len(members),
+            "members": members,
+        }
+
+    async def _action_voice_set_config(cmd: dict) -> dict:
+        engine = _get_voice_engine()
+        # Accept both {"config": {...}} (legacy) and flat top-level keys
+        # (tts/stt/vad_enabled/voice/speed/...), which is what the agent docs
+        # and every example bot send.
+        updates = dict(cmd.get("config") or {})
+        flat_keys = {
+            "tts": "tts_provider",
+            "stt": "stt_provider",
+            "tts_voice": "tts_voice",
+            "vad_enabled": "vad_enabled",
+            "playback_volume": "playback_volume",
+            "speed": "tts_speed",
+        }
+        for src, dst in flat_keys.items():
+            if src in cmd and cmd[src] is not None:
+                updates[dst] = cmd[src]
+        engine.update_config(updates)
+        return {"ok": True, "config": engine.config}
+
+    # ── Interactive Actions ────────────────────────────────────────
+
+    async def _action_workflow_start(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        from discli.interact_engine import WorkflowDefinition, WorkflowStep
+
+        channel_id = cmd.get("channel_id")
+        user_id = cmd.get("user_id")
+        raw = cmd.get("workflow", {})
+
+        ch = resolve_channel_by_id(channel_id)
+        if not ch:
+            return {"error": f"Channel {channel_id} not found"}
+
+        steps = [
+            WorkflowStep(
+                step_id=s["step_id"],
+                step_type=s["step_type"],
+                content=s.get("content", ""),
+                components=s.get("components", []),
+                fields=s.get("fields", []),
+                next=s.get("next"),
+                timeout=s.get("timeout", 300),
+            )
+            for s in raw.get("steps", [])
+        ]
+        wf_def = WorkflowDefinition(
+            workflow_id=raw.get("workflow_id", str(uuid.uuid4())),
+            steps=steps,
+        )
+        key = await engine.workflow_start(ch, user_id, wf_def)
+        return {"ok": True, "workflow_key": key}
+
+    async def _action_workflow_cancel(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        cancelled = engine.workflow_cancel(cmd.get("user_id"), cmd.get("workflow_id"))
+        return {"ok": True, "cancelled": cancelled}
+
+    async def _action_dashboard_create(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        from discli.interact_engine import DashboardDefinition, DashboardPage
+
+        channel_id = cmd.get("channel_id")
+        ch = resolve_channel_by_id(channel_id)
+        if not ch:
+            return {"error": f"Channel {channel_id} not found"}
+
+        raw = cmd.get("dashboard", {})
+        pages = [
+            DashboardPage(embed=p.get("embed", {}), components=p.get("components", []))
+            for p in raw.get("pages", [])
+        ]
+        dash_def = DashboardDefinition(
+            dashboard_id=raw.get("dashboard_id", str(uuid.uuid4())),
+            pages=pages,
+            refresh_interval=raw.get("refresh_interval", 0),
+        )
+        dash_id = await engine.dashboard_create(ch, dash_def)
+        return {"ok": True, "dashboard_id": dash_id}
+
+    async def _action_dashboard_update(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel {cmd.get('channel_id')} not found"}
+        await engine.dashboard_update(cmd.get("dashboard_id"), cmd.get("updates", {}), ch)
+        return {"ok": True}
+
+    async def _action_dashboard_delete(cmd: dict) -> dict:
+        engine = _get_interact_engine()
+        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        if not ch:
+            return {"error": f"Channel {cmd.get('channel_id')} not found"}
+        await engine.dashboard_delete(cmd.get("dashboard_id"), ch)
+        return {"ok": True}
+
     # ── Action Dispatch ────────────────────────────────────────────
 
     _actions: dict[str, callable] = {
@@ -1717,6 +2066,27 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         # Server
         "server_list": _action_server_list,
         "server_info": _action_server_info,
+        # Voice
+        "voice_connect": _action_voice_connect,
+        "voice_disconnect": _action_voice_disconnect,
+        "voice_move": _action_voice_move,
+        "voice_speak": _action_voice_speak,
+        "voice_play": _action_voice_play,
+        "voice_stop": _action_voice_stop,
+        "voice_pause": _action_voice_pause,
+        "voice_resume": _action_voice_resume,
+        "voice_listen_start": _action_voice_listen_start,
+        "voice_listen_stop": _action_voice_listen_stop,
+        "voice_status": _action_voice_status,
+        "voice_where": _action_voice_where,
+        "voice_members": _action_voice_members,
+        "voice_set_config": _action_voice_set_config,
+        # Workflows & Dashboards
+        "workflow_start": _action_workflow_start,
+        "workflow_cancel": _action_workflow_cancel,
+        "dashboard_create": _action_dashboard_create,
+        "dashboard_update": _action_dashboard_update,
+        "dashboard_delete": _action_dashboard_delete,
     }
 
     async def _dispatch(cmd: dict) -> dict:

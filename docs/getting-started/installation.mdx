@@ -139,6 +139,44 @@ Commands:
   If you see `command not found: discli`, make sure the Python scripts directory is on your `PATH`. For pip installs, this is typically `~/.local/bin` on Linux/macOS or `%APPDATA%\Python\Scripts` on Windows.
 </Callout>
 
+## Optional: voice features
+
+The core install is **text-only** by design — voice pulls in heavy dependencies (PyNaCl, discord-ext-voice-recv, davey, audioop-lts) you don't need for chat-only bots. Install voice extras when you want them:
+
+```bash
+pip install 'discord-cli-agent[voice,deepgram]'
+# or, in a checkout:
+uv sync --extra voice --extra deepgram
+```
+
+Available extras:
+
+| Extra | Adds |
+|-------|------|
+| `voice` | Core voice send/receive, Silero VAD, audioop-lts (Python 3.13+) |
+| `deepgram` | Deepgram streaming STT + Aura TTS |
+| `elevenlabs` | ElevenLabs TTS |
+| `openai-voice` | OpenAI Whisper STT + TTS |
+| `all-voice` | `voice` + `elevenlabs` + `deepgram` (convenience meta) |
+
+You'll also need **libopus** on the system (`apt install libopus0`, `brew install opus`) and **ffmpeg** if you want to use `voice play` or TTS playback.
+
+Verify with:
+
+```bash
+discli doctor
+```
+
+See the [Voice guide](/guides/voice) for the full setup.
+
+## Diagnose your install
+
+```bash
+discli doctor
+```
+
+Reports the state of everything discli needs grouped into CORE / VOICE / STT / TTS / TOOLS. Optional dependencies you haven't asked for are silenced — a pure-text dev sees a clean two-section report. `--json` for scripting.
+
 ## Upgrading
 
 To upgrade to the latest version:

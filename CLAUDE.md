@@ -4,22 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-discli is a Discord CLI for AI agents and humans — a Python command-line tool for managing Discord servers, messages, reactions, threads, DMs, and events from the terminal. Published on PyPI as `discord-cli-agent`.
+discli is a Discord CLI for AI agents and humans — a Python command-line tool for managing Discord servers, messages, reactions, threads, DMs, events, voice audio, and rich interactive components (modals, workflows, dashboards) from the terminal. Published on PyPI as `discord-cli-agent`.
 
 ## Commands
 
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
+
 ```bash
-# Install (editable, with dev deps)
-pip install -e ".[dev]"
+# Install (editable, with dev deps) — creates .venv/ automatically
+uv sync --dev
+
+# Install with voice features (TTS/STT providers)
+uv sync --dev --extra voice --extra elevenlabs --extra deepgram
 
 # Run tests
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run a single test
-pytest tests/test_utils.py -v
+uv run pytest tests/test_utils.py -v
+
+# Run the CLI
+uv run discli --help
 
 # Build package
-python -m build
+uv build
 ```
 
 No linter is configured. Commit style: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).
@@ -32,13 +40,17 @@ No linter is configured. Commit style: conventional commits (`feat:`, `fix:`, `d
 
 **Key modules:**
 - `client.py` — Token resolution (flag → env var → config file), `run_discord()` sync wrapper around async Discord actions
-- `security.py` — Permission profiles (full/chat/readonly/moderation), audit logging to `~/.discli/audit.log` (JSONL), token-bucket rate limiter
+- `security.py` — Permission profiles (full/chat/readonly/moderation/voice/interact), audit logging to `~/.discli/audit.log` (JSONL), token-bucket rate limiter
 - `utils.py` — Output formatting (text/JSON via `--json` flag), channel/guild resolvers
 - `config.py` — Token storage at `~/.discli/config.json`
+- `voice_engine.py` — VoiceEngine with AudioPlayer, AudioListener, VAD-based speech segmentation, audio codec handling
+- `interact_engine.py` — InteractEngine for modals, workflows, and dashboards with interaction routing and state management
+- `tts.py` — TTS provider protocol with ElevenLabs and OpenAI implementations
+- `stt.py` — STT provider protocol with Deepgram and OpenAI Whisper implementations
 
 **Command pattern:** Each module in `commands/` defines Click commands, takes an async action function, and calls `run_discord(ctx, action)`. Follow existing modules when adding new commands.
 
-**`serve` command (commands/serve.py):** The largest module (~1100 lines). Runs a persistent bot with bidirectional JSONL over stdin/stdout. Features: event forwarding, action dispatch (send/reply/edit/delete/stream/typing/reactions/threads/polls/channels/members/roles/DMs), slash command registration, streaming message edits with periodic flush, Windows-compatible stdin reading via threading.
+**`serve` command (commands/serve.py):** The largest module (~1200 lines). Runs a persistent bot with bidirectional JSONL over stdin/stdout. Features: event forwarding, action dispatch (send/reply/edit/delete/stream/typing/reactions/threads/polls/channels/members/roles/DMs), voice actions (connect/speak/play/listen/etc.), interactive actions (workflows, dashboards), slash command registration, streaming message edits with periodic flush, Windows-compatible stdin reading via threading.
 
 ## Adding a New Command
 

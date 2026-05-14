@@ -53,6 +53,7 @@
           { "label": "Security & Permissions", "href": "/guides/security-permissions" },
           { "label": "Scripting & Automation", "href": "/guides/scripting-automation" },
           { "label": "Components & Modals", "href": "/guides/components-modals" },
+          { "label": "Voice", "href": "/guides/voice" },
           { "label": "AI Agent", "href": "/guides/ai-agent" }
         ]
       },
@@ -60,6 +61,7 @@
         "label": "Use Cases",
         "items": [
           { "label": "AI Support Agent", "href": "/use-cases/ai-support-agent" },
+          { "label": "Meeting Transcription", "href": "/use-cases/meeting-transcription" },
           { "label": "Moderation Bot", "href": "/use-cases/moderation-bot" },
           { "label": "Thread-Based Support", "href": "/use-cases/thread-based-support" },
           { "label": "Channel Logger", "href": "/use-cases/channel-logger" },

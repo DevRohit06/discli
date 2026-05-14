@@ -973,3 +973,137 @@ Clear the audit log.
 ```
 discli audit clear
 ```
+
+---
+
+## doctor
+
+Diagnose the local install: token, voice deps, STT/TTS keys, ffmpeg. Optional dependencies that you haven't asked for are reported as `[--]` rather than failures — devs who only use text features see a clean two-section report. Exit code is `0` when no failures, `1` otherwise. See the [Voice guide](/guides/voice#step-2--run-the-doctor) for sample output.
+
+```
+discli doctor [--json]
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--json` | no | false | Emit machine-readable output |
+
+---
+
+## voice
+
+Join voice channels, transcribe speech with STT, speak via TTS, and play audio. Voice subcommands require the `voice` extra — install with `pip install 'discord-cli-agent[voice]'` (or `uv sync --extra voice`). The read-only lookups (`voice status`, `voice where`, `voice members`) work without the voice extra.
+
+See the [Voice guide](/guides/voice) for an end-to-end walkthrough.
+
+### voice join
+
+Join a server voice channel. Connects, confirms, and disconnects — one-shot.
+
+```
+discli voice join CHANNEL [OPTIONS]
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `CHANNEL` | yes | | Voice channel name or ID |
+| `--server` | no | | Scope lookup to one server |
+
+### voice leave
+
+Leave the active voice channel.
+
+```
+discli voice leave [--server NAME_OR_ID]
+```
+
+### voice speak
+
+Synthesise text via TTS and play it in the active voice channel.
+
+```
+discli voice speak TEXT [OPTIONS]
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `TEXT` | yes | | Text to speak |
+| `--server` | no | | Scope to one server |
+| `--voice` | no | `default` | TTS voice name (provider-specific) |
+| `--speed` | no | `1.0` | Speech rate multiplier |
+
+### voice play
+
+Play an audio file or URL in the active voice channel via ffmpeg.
+
+```
+discli voice play SOURCE [OPTIONS]
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `SOURCE` | yes | | File path or HTTP(S) URL |
+| `--server` | no | | Scope to one server |
+| `--volume` | no | `1.0` | Playback volume (0.0 – 2.0) |
+
+### voice stop / pause / resume
+
+Control current playback. None take a channel argument — they affect the active connection for the server (or auto-detect the only one).
+
+```
+discli voice stop   [--server NAME_OR_ID]
+discli voice pause  [--server NAME_OR_ID]
+discli voice resume [--server NAME_OR_ID]
+```
+
+### voice listen
+
+Listen to the active voice channel and print finalised transcriptions per speaker.
+
+```
+discli voice listen [OPTIONS]
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--server` | no | | Scope to one server |
+| `--duration` | no | `0` | Stop after N seconds (`0` = until Ctrl+C) |
+| `--continuous` | no | false | Keep session alive after each transcription |
+
+### voice capture
+
+Debug helper: writes raw 48 kHz stereo PCM per speaker to WAV files, bypassing STT. Use this to confirm the bot is actually receiving audio when listening is silent.
+
+```
+discli voice capture [OPTIONS]
+```
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--server` | no | | Scope to one server |
+| `--duration` | no | `10` | Capture duration in seconds |
+| `--output-dir` | no | `~/.discli/debug-capture` | Where to write WAVs |
+
+### voice status
+
+List all active voice connections. Read-only — no `voice` extra required.
+
+```
+discli voice status
+```
+
+### voice where
+
+Find which voice channel a user is currently in. Read-only.
+
+```
+discli voice where USER [--server NAME_OR_ID]
+```
+
+### voice members
+
+List members in a voice channel. Read-only.
+
+```
+discli voice members CHANNEL [--server NAME_OR_ID]
+```
