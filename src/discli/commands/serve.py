@@ -12,7 +12,14 @@ import uuid
 
 import click
 import discord
-from discord import app_commands
+try:
+    from discord import app_commands  # discord.py
+    if not hasattr(app_commands, "CommandTree"):
+        # py-cord ships a different `app_commands` namespace without
+        # CommandTree — treat it as if discord.py app_commands isn't available.
+        app_commands = None  # type: ignore[assignment]
+except ImportError:
+    app_commands = None
 
 DISCORD_MSG_LIMIT = 2000
 STREAM_EDIT_INTERVAL = 1.5  # Discord rate limit on edits
@@ -50,9 +57,20 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         with open(slash_commands_file) as f:
             slash_defs = json.load(f)
 
+    # Load libopus so voice receive (discord-ext-voice-recv) can decode
+    # incoming audio. Without this, packets arrive but the decode step
+    # fails silently and AudioSink.write() never fires.
+    try:
+        if not discord.opus.is_loaded():
+            discord.opus._load_default()
+        print(f"[voice] opus loaded={discord.opus.is_loaded()}", flush=True)
+    except Exception as exc:
+        print(f"[voice] opus load failed: {exc!r} — voice receive will not work",
+              flush=True)
+
     intents = discord.Intents.all()
     client = discord.Client(intents=intents)
-    tree = app_commands.CommandTree(client)
+    tree = app_commands.CommandTree(client) if app_commands is not None else None
 
     # State
     typing_tasks: dict[str, asyncio.Task] = {}  # channel_id -> task
@@ -484,6 +502,18 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── Slash Commands ──────────────────────────────────────────────
 
     async def _register_slash_commands():
+        if tree is None or app_commands is None:
+            # Pycord uses bot.application_command instead of CommandTree;
+            # dynamic registration is not yet ported. Slash commands are
+            # secondary to voice for the meeting-transcription use case.
+            if slash_defs:
+                emit({
+                    "event": "error",
+                    "message": "slash command registration is not supported on py-cord yet — "
+                               "skipping. Install discord.py + discord-ext-voice-recv if needed.",
+                })
+            return
+
         import inspect
 
         _type_map = {"string": str, "integer": int, "number": float, "boolean": bool}
@@ -1684,6 +1714,27 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     # ── Voice Actions ──────────────────────────────────────────────
 
+    def _resolve_voice_guild_id(cmd: dict) -> str | int | None:
+        """Return a guild_id for voice actions.
+
+        Accepts either a ``guild_id`` directly, or a ``channel_id`` which is
+        resolved to the guild owning that voice channel. The agent-facing docs
+        use ``channel_id`` everywhere, so this lets callers omit guild_id.
+        """
+        gid = cmd.get("guild_id")
+        if gid:
+            return gid
+        channel_id = cmd.get("channel_id")
+        if channel_id is None:
+            return None
+        try:
+            ch = client.get_channel(int(channel_id))
+        except (TypeError, ValueError):
+            return None
+        if ch is None or not hasattr(ch, "guild"):
+            return None
+        return ch.guild.id
+
     async def _action_voice_connect(cmd: dict) -> dict:
         engine = _get_voice_engine()
         channel_id = cmd.get("channel_id")
@@ -1695,7 +1746,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     async def _action_voice_disconnect(cmd: dict) -> dict:
         engine = _get_voice_engine()
-        await engine.disconnect(cmd.get("guild_id"))
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        await engine.disconnect(guild_id)
         return {"ok": True}
 
     async def _action_voice_move(cmd: dict) -> dict:
@@ -1709,8 +1763,17 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     async def _action_voice_speak(cmd: dict) -> dict:
         engine = _get_voice_engine()
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        # Per-call override: ``tts`` in the command swaps the provider for
+        # this (and subsequent) speak calls. Matches the documented schema.
+        tts = cmd.get("tts")
+        if tts and engine.config.get("tts_provider") != tts:
+            engine.update_config({"tts_provider": tts})
+            engine._tts = None  # force re-instantiation
         await engine.speak(
-            cmd.get("guild_id"),
+            guild_id,
             cmd.get("text", ""),
             voice=cmd.get("voice", "default"),
             speed=cmd.get("speed", 1.0),
@@ -1719,32 +1782,54 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     async def _action_voice_play(cmd: dict) -> dict:
         engine = _get_voice_engine()
-        await engine.play(cmd.get("guild_id"), cmd.get("source", ""))
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        await engine.play(guild_id, cmd.get("source") or cmd.get("audio_url", ""))
         return {"ok": True}
 
     async def _action_voice_stop(cmd: dict) -> dict:
         engine = _get_voice_engine()
-        engine.stop(cmd.get("guild_id"))
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        engine.stop(guild_id)
         return {"ok": True}
 
     async def _action_voice_pause(cmd: dict) -> dict:
         engine = _get_voice_engine()
-        engine.pause(cmd.get("guild_id"))
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        engine.pause(guild_id)
         return {"ok": True}
 
     async def _action_voice_resume(cmd: dict) -> dict:
         engine = _get_voice_engine()
-        engine.resume(cmd.get("guild_id"))
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        engine.resume(guild_id)
         return {"ok": True}
 
     async def _action_voice_listen_start(cmd: dict) -> dict:
         engine = _get_voice_engine()
-        await engine.listen_start(cmd.get("guild_id"))
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        stt = cmd.get("stt")
+        if stt and engine.config.get("stt_provider") != stt:
+            engine.update_config({"stt_provider": stt})
+            engine._stt = None  # force re-instantiation
+        await engine.listen_start(guild_id)
         return {"ok": True}
 
     async def _action_voice_listen_stop(cmd: dict) -> dict:
         engine = _get_voice_engine()
-        await engine.listen_stop(cmd.get("guild_id"))
+        guild_id = _resolve_voice_guild_id(cmd)
+        if guild_id is None:
+            return {"error": "Provide 'channel_id' or 'guild_id'"}
+        await engine.listen_stop(guild_id)
         return {"ok": True}
 
     async def _action_voice_status(cmd: dict) -> dict:
@@ -1817,7 +1902,22 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     async def _action_voice_set_config(cmd: dict) -> dict:
         engine = _get_voice_engine()
-        engine.update_config(cmd.get("config", {}))
+        # Accept both {"config": {...}} (legacy) and flat top-level keys
+        # (tts/stt/vad_enabled/voice/speed/...), which is what the agent docs
+        # and every example bot send.
+        updates = dict(cmd.get("config") or {})
+        flat_keys = {
+            "tts": "tts_provider",
+            "stt": "stt_provider",
+            "tts_voice": "tts_voice",
+            "vad_enabled": "vad_enabled",
+            "playback_volume": "playback_volume",
+            "speed": "tts_speed",
+        }
+        for src, dst in flat_keys.items():
+            if src in cmd and cmd[src] is not None:
+                updates[dst] = cmd[src]
+        engine.update_config(updates)
         return {"ok": True, "config": engine.config}
 
     # ── Interactive Actions ────────────────────────────────────────

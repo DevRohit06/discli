@@ -800,7 +800,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.3.2" },
     { name = "deepgram-sdk", marker = "extra == 'deepgram'", specifier = ">=6.1.1" },
     { name = "discord-cli-agent", extras = ["voice", "elevenlabs", "deepgram"], marker = "extra == 'all-voice'" },
-    { name = "discord-ext-voice-recv", marker = "extra == 'voice'", specifier = ">=0.5.2a179" },
+    { name = "discord-ext-voice-recv", marker = "extra == 'voice'", specifier = "==0.5.2a179" },
     { name = "discord-py", specifier = ">=2.7.1" },
     { name = "elevenlabs", marker = "extra == 'elevenlabs'", specifier = ">=2.43.0" },
     { name = "faster-whisper", marker = "extra == 'local-voice'", specifier = ">=1.2.1" },

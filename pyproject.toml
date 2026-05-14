@@ -30,7 +30,10 @@ dev = []
 [project.optional-dependencies]
 voice = [
     "audioop-lts>=0.2.2 ; python_full_version >= '3.13'",
-    "discord-ext-voice-recv>=0.5.2a179",
+    # 0.4.x is too old (no aead_xchacha20_poly1305_rtpsize); 0.5.0a167 has a
+    # circular import bug; 0.5.1a170 doesn't deliver audio packets for our
+    # flow. 0.5.2a179 actually delivers PCM and is the most recent alpha.
+    "discord-ext-voice-recv==0.5.2a179",
     "pynacl>=1.5.0",
     "silero-vad>=6.2.1",
 ]

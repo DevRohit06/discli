@@ -8,21 +8,26 @@ discli is a Discord CLI for AI agents and humans — a Python command-line tool 
 
 ## Commands
 
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
+
 ```bash
-# Install (editable, with dev deps)
-pip install -e ".[dev]"
+# Install (editable, with dev deps) — creates .venv/ automatically
+uv sync --dev
 
 # Install with voice features (TTS/STT providers)
-pip install -e ".[voice,elevenlabs,deepgram]"
+uv sync --dev --extra voice --extra elevenlabs --extra deepgram
 
 # Run tests
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run a single test
-pytest tests/test_utils.py -v
+uv run pytest tests/test_utils.py -v
+
+# Run the CLI
+uv run discli --help
 
 # Build package
-python -m build
+uv build
 ```
 
 No linter is configured. Commit style: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).

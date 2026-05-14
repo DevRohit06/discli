@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import wave
@@ -43,20 +44,19 @@ def _require_env(name: str) -> str:
 class DeepgramSTT:
     """Streaming STT via Deepgram's live transcription websocket API."""
 
+    SUPPORTS_STREAMING = True
+
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
-        self._client = None
 
-    def _get_client(self):
+    def _get_async_client(self):
         try:
-            from deepgram import DeepgramClient  # type: ignore[import]
+            from deepgram import AsyncDeepgramClient  # type: ignore[import]
         except ImportError as exc:
             raise STTError(
                 "deepgram-sdk is not installed. Run: pip install discord-cli-agent[deepgram]"
             ) from exc
-        if self._client is None:
-            self._client = DeepgramClient(self._api_key)
-        return self._client
+        return AsyncDeepgramClient(api_key=self._api_key)
 
     async def transcribe(
         self,
@@ -64,52 +64,134 @@ class DeepgramSTT:
         *,
         sample_rate: int = 48000,
     ) -> AsyncIterator[TranscriptionResult]:
-        try:
-            from deepgram import LiveOptions, LiveTranscriptionEvents  # type: ignore[import]
-        except ImportError as exc:
-            raise STTError(
-                "deepgram-sdk is not installed. Run: pip install discord-cli-agent[deepgram]"
-            ) from exc
-
-        client = self._get_client()
-        connection = client.listen.asyncwebsocket.v("1")
-
-        results: list[TranscriptionResult] = []
-
-        def on_transcript(self_inner, result, **kwargs):  # noqa: ANN001
-            sentence = result.channel.alternatives[0]
-            if sentence.transcript:
-                results.append(
-                    TranscriptionResult(
-                        text=sentence.transcript,
-                        confidence=sentence.confidence,
-                        is_final=result.is_final,
-                    )
-                )
-
-        connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-
-        options = LiveOptions(
-            model="nova-2",
-            language="en",
-            smart_format=True,
-            encoding="linear16",
-            interim_results=True,
-            sample_rate=sample_rate,
-        )
-
-        await connection.start(options)
-
-        async for chunk in audio_stream:
-            await connection.send(chunk)
-
-        await connection.finish()
-
-        for result in results:
+        """Batch-style transcription kept for backwards compatibility with
+        callers that buffer audio before transcribing. For real-time meeting
+        transcription, use :meth:`stream_session` instead."""
+        async for result in self.stream_session(audio_stream, sample_rate=sample_rate):
             yield result
 
+    async def stream_session(
+        self,
+        audio_stream: AsyncIterator[bytes],
+        *,
+        sample_rate: int = 48000,
+        channels: int = 1,
+        model: str = "nova-2",
+    ) -> AsyncIterator[TranscriptionResult]:
+        """Stream audio to Deepgram's live transcription websocket and yield
+        ``TranscriptionResult`` objects as they arrive.
+
+        Talks to Deepgram directly via ``websockets`` — the official
+        ``deepgram-sdk`` v6.x ``listen.v1.connect`` helper has a generic 400
+        "Unexpected error when initializing websocket connection" bug for our
+        flow, while the raw API works fine.
+        """
+        try:
+            import websockets  # type: ignore[import]
+        except ImportError as exc:
+            raise STTError(
+                "websockets is not installed. Run: pip install websockets "
+                "(comes in via discord-cli-agent[deepgram])"
+            ) from exc
+
+        import json as _json
+        from urllib.parse import urlencode
+
+        params = {
+            "model": model,
+            "encoding": "linear16",
+            "sample_rate": str(sample_rate),
+            "channels": str(channels),
+            "interim_results": "true",
+            "punctuate": "true",
+            "smart_format": "true",
+        }
+        url = f"wss://api.deepgram.com/v1/listen?{urlencode(params)}"
+        headers = {"Authorization": f"Token {self._api_key}"}
+
+        async with websockets.connect(
+            url, additional_headers=headers, open_timeout=10
+        ) as ws:
+            stop = asyncio.Event()
+
+            # Drain the audio_stream into a small inner queue so we can
+            # multiplex audio sends with periodic KeepAlive messages.
+            # Without KeepAlives Deepgram closes the connection with
+            # error 1011 after ~10s of silence.
+            inner: asyncio.Queue = asyncio.Queue(maxsize=500)
+
+            async def _drain():
+                try:
+                    async for chunk in audio_stream:
+                        if chunk:
+                            await inner.put(chunk)
+                finally:
+                    await inner.put(None)  # sentinel: source closed
+
+            async def _pump():
+                packets_sent = 0
+                try:
+                    while not stop.is_set():
+                        try:
+                            chunk = await asyncio.wait_for(inner.get(), timeout=3.0)
+                        except asyncio.TimeoutError:
+                            # No audio in the last 3s — keep the websocket warm.
+                            await ws.send(_json.dumps({"type": "KeepAlive"}))
+                            continue
+                        if chunk is None:
+                            break
+                        await ws.send(chunk)
+                        packets_sent += 1
+                    print(
+                        f"[stt] pump exiting after {packets_sent} packets",
+                        flush=True,
+                    )
+                    try:
+                        await ws.send(_json.dumps({"type": "Finalize"}))
+                        await ws.send(_json.dumps({"type": "CloseStream"}))
+                    except Exception:
+                        pass
+                finally:
+                    stop.set()
+
+            drain_task = asyncio.create_task(_drain())
+            pump_task = asyncio.create_task(_pump())
+
+            try:
+                async for raw in ws:
+                    if isinstance(raw, bytes):
+                        continue
+                    try:
+                        msg = _json.loads(raw)
+                    except _json.JSONDecodeError:
+                        continue
+                    mtype = msg.get("type")
+                    print(f"[stt] dg msg type={mtype}", flush=True)
+                    if mtype != "Results":
+                        continue
+                    channel = msg.get("channel") or {}
+                    alts = channel.get("alternatives") or []
+                    if not alts:
+                        continue
+                    transcript = alts[0].get("transcript") or ""
+                    if not transcript:
+                        continue
+                    yield TranscriptionResult(
+                        text=transcript,
+                        confidence=float(alts[0].get("confidence") or 0.0),
+                        is_final=bool(msg.get("is_final")),
+                    )
+            finally:
+                stop.set()
+                for t in (pump_task, drain_task):
+                    t.cancel()
+                    try:
+                        await t
+                    except (asyncio.CancelledError, Exception):
+                        pass
+
     async def close(self) -> None:
-        self._client = None
+        pass
 
 
 class OpenAISTT:

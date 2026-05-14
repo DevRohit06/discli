@@ -4,11 +4,13 @@ Thanks for your interest in contributing!
 
 ## Development Setup
 
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management. Install it first if you don't have it: see https://docs.astral.sh/uv/#installation.
+
 ```bash
 git clone https://github.com/DevRohit06/discli.git
 cd discli
-pip install -e ".[dev]"
-pytest tests/ -v
+uv sync --dev
+uv run pytest tests/ -v
 ```
 
 ## Adding a New Command
@@ -22,7 +24,7 @@ pytest tests/ -v
 ## Running Tests
 
 ```bash
-pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ## Commit Style
