@@ -1,0 +1,269 @@
+---
+title: Voice
+description: Join voice channels, transcribe speech, and play audio — including a live meeting transcriber you can build in 10 minutes
+---
+
+# Voice
+
+discli's voice stack lets your bot **join a server voice channel**, **transcribe everyone live**, **speak via TTS**, and **play audio**. By the end of this guide you'll have a meeting transcriber that writes speaker-labelled lines to a file and asks Claude to summarise the call when you stop it.
+
+<Callout type="note">
+  Voice features only work in **server voice channels**. Discord's API does not let application bots join DM or group-DM voice calls.
+</Callout>
+
+## What you'll build
+
+A bot that joins a voice channel, prints lines like:
+
+```
+- **[14:32:08] Roy:** so what's our plan for the migration
+- **[14:32:14] Sara:** I'd start with the read path first
+- **[14:32:21] Roy:** good idea — can we ship that this sprint?
+```
+
+…to console and to `~/.discli/transcripts/meeting-<timestamp>.md`, then on Ctrl+C asks Claude to produce a structured summary.
+
+## Step 1 — Install the voice extras
+
+The core `discord-cli-agent` install is text-only on purpose — the voice stack pulls in `PyNaCl`, `discord-ext-voice-recv`, `davey` (Discord's end-to-end voice encryption library), and `audioop-lts`. Install the extras when you want voice:
+
+<Tabs>
+  <Tab title="pip">
+    ```bash
+    pip install 'discord-cli-agent[voice,deepgram]'
+    ```
+  </Tab>
+  <Tab title="uv">
+    ```bash
+    uv add 'discord-cli-agent[voice,deepgram]'
+    # or, in a checkout:
+    uv sync --extra voice --extra deepgram
+    ```
+  </Tab>
+</Tabs>
+
+You'll also need:
+
+- **libopus** on the system — `apt install libopus0` (Debian/Ubuntu), `brew install opus` (macOS), bundled on Windows via `discord.py`'s wheel.
+- **ffmpeg** on `PATH` if you want to use `voice play` (file/URL playback) or TTS playback — `apt install ffmpeg` / `brew install ffmpeg` / `winget install ffmpeg`.
+
+For provider-specific extras:
+
+| Extra | Adds |
+|-------|------|
+| `voice` | core voice send/receive, Silero VAD, `audioop-lts` for Python 3.13+ |
+| `deepgram` | Deepgram streaming STT + Aura TTS |
+| `elevenlabs` | ElevenLabs TTS |
+| `openai-voice` | OpenAI Whisper STT + TTS |
+| `all-voice` | `voice` + `elevenlabs` + `deepgram` |
+
+## Step 2 — Run the doctor
+
+Before you debug "nothing is happening", run:
+
+```bash
+discli doctor
+```
+
+`doctor` reports the state of every piece the voice stack needs. A working voice install looks like:
+
+```
+CORE
+  [ok] python — Python 3.12.1
+  [ok] bot token — configured
+  [ok] discord.py — v2.7.1
+
+VOICE
+  [ok] libopus — loaded
+  [ok] PyNaCl — v1.5.0
+  [ok] discord-ext-voice-recv — v0.5.2a179
+  [ok] davey (DAVE crypto) — v0.1.5
+  [ok] DAVE/Opus patches — install ok
+
+STT
+  [ok] DEEPGRAM_API_KEY — set
+  [--] OPENAI_API_KEY (Whisper) — not set
+
+TTS
+  [--] ELEVENLABS_API_KEY — not set
+  [--] OPENAI_API_KEY (TTS) — not set
+  [ok] DEEPGRAM_API_KEY (Aura) — set
+
+TOOLS
+  [ok] ffmpeg — /usr/bin/ffmpeg
+
+OK — no problems found (3 optional check(s) skipped).
+```
+
+<Callout type="tip">
+  Lines marked `[--]` are optional providers you haven't configured. discli only fails if something you actually need is broken. If `doctor` reports clean, voice will work.
+</Callout>
+
+Use `--json` for machine-readable output (handy in CI):
+
+```bash
+discli doctor --json
+```
+
+## Step 3 — Join a voice channel
+
+Pick a voice channel ID (right-click → Copy ID in Discord with Developer Mode on, or use `discli channel list`), then:
+
+```bash
+discli voice join "<channel name or id>"
+```
+
+`voice join` is a one-shot command — it connects, confirms, and disconnects. To stay connected you need either an interactive session (next step) or `discli serve` (covered in [Serve Mode](/guides/serve-mode)).
+
+## Step 4 — Listen and transcribe
+
+Start a transcription session in two terminals.
+
+**Terminal 1** — keep the bot in the channel:
+
+```bash
+discli voice join "general"
+```
+
+**Terminal 2** — listen with Deepgram streaming STT:
+
+```bash
+export DEEPGRAM_API_KEY=...
+discli voice listen
+```
+
+You'll see lines like:
+
+```
+[123456789012345678] hello can you hear me
+[987654321098765432] yes loud and clear
+```
+
+Each line is `[user_id] text`. Hit Ctrl+C to stop.
+
+<Callout type="info">
+  `voice listen` defaults to **Deepgram** for streaming. Pass `--continuous` to keep the session alive after each transcript (default), and `--duration N` to listen for N seconds and stop.
+</Callout>
+
+## Step 5 — Speak with TTS
+
+```bash
+export ELEVENLABS_API_KEY=...
+discli voice speak "joining the call now"
+```
+
+Pick a provider with `--server` config or env var:
+
+| Provider | Env var | Notes |
+|----------|---------|-------|
+| ElevenLabs | `ELEVENLABS_API_KEY` | Highest quality, paid |
+| OpenAI | `OPENAI_API_KEY` | Cheap and decent |
+| Deepgram Aura | `DEEPGRAM_API_KEY` | Streaming-friendly |
+
+Customise the voice ID with `--voice <id>` and the speech rate with `--speed 0.8`.
+
+## Step 6 — Play audio
+
+```bash
+discli voice play /path/to/file.mp3
+discli voice play https://example.com/stream.opus
+```
+
+Playback goes through `ffmpeg` so any format ffmpeg understands works. Use `voice stop`, `voice pause`, `voice resume` to control it.
+
+## Step 7 — Build the meeting transcriber
+
+discli ships a complete meeting-transcription example at `examples/meeting_transcriber.py`. It joins a server voice channel, transcribes everyone with their display names, appends to `~/.discli/transcripts/meeting-<timestamp>.md`, and uses the Claude Agent SDK to produce a structured summary on Ctrl+C.
+
+Set up:
+
+```bash
+pip install 'discord-cli-agent[voice,deepgram]' claude-agent-sdk
+discli config set token YOUR_BOT_TOKEN
+export DEEPGRAM_API_KEY=...
+```
+
+Run:
+
+```bash
+python examples/meeting_transcriber.py <voice_channel_id>
+```
+
+Output during the meeting:
+
+```
+Connected as MyBot#1234 (12345)
+Listening to #standup. Transcript: /home/me/.discli/transcripts/meeting-20260514-103000.md
+Press Ctrl+C to stop and generate a summary.
+
+- **[10:30:14] Roy:** ok let's go around — what did everyone do yesterday
+- **[10:30:22] Sara:** finished the auth migration, started on the rate limiter
+- **[10:30:35] Roy:** nice
+```
+
+On Ctrl+C:
+
+```
+Stopping listener…
+Generating summary from 47 line(s)…
+Summary cost: $0.0084
+
+=== Meeting Summary ===
+
+## Summary
+The team did a standup covering yesterday's work and today's plan.
+Sara finished the auth migration; rate limiter is next.
+
+## Key decisions
+- Move forward with read-path-first for the migration this sprint.
+
+## Action items
+- Sara: finish rate limiter today.
+- Roy: write the migration runbook by Friday.
+
+## Open questions
+- Do we backfill old sessions or expire them?
+```
+
+The summary is appended to the same transcript file. You can re-summarise later by piping the markdown back to Claude.
+
+## Behind the scenes — DAVE encryption
+
+Modern Discord wraps voice in **DAVE** (Discord Audio and Video Encryption — their end-to-end voice encryption). The off-the-shelf `discord-ext-voice-recv` library strips the legacy SecretBox layer but doesn't know about DAVE, so libopus rejects every packet as `corrupted stream`.
+
+discli patches `PacketDecoder._decode_packet` at runtime to insert a `davey.DaveSession.decrypt(...)` call between the SecretBox layer and libopus, and wraps `pop_data` so a single bad packet can't kill the listener. The patches install lazily on the first `VoiceEngine.listen_start(...)` call — you don't need to do anything.
+
+If `discli doctor` reports `[FAIL] DAVE/Opus patches`, voice listening is broken at the framework level. File an issue with the doctor output.
+
+## Permissions
+
+The `chat` profile **denies** voice — agents using `chat` cannot join or speak. Use `voice`, `moderation`, or `full` to allow voice actions:
+
+```bash
+discli --profile voice voice join general
+# or
+DISCLI_PROFILE=voice discli voice listen
+```
+
+The `readonly` profile allows the stateless voice lookups (`voice status`, `voice where`, `voice members`) so a read-only agent can answer "who's in voice?" without being able to join.
+
+See [Permission Profiles](/reference/permission-profiles) for full details.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Voice features need extras that aren't installed` | Voice extras missing | `pip install 'discord-cli-agent[voice]'` |
+| `discli doctor` shows libopus not loaded | Missing system package | `apt install libopus0` / `brew install opus` |
+| Bot joins but transcript is silent | (rare) DAVE patch failed to install | `discli doctor` — file an issue if VOICE is red |
+| `discli voice play` fails with `FFmpeg not found` | ffmpeg not on `PATH` | `apt install ffmpeg` / `brew install ffmpeg` |
+| Deepgram returns nothing | Free tier auth or quota | check `DEEPGRAM_API_KEY` matches an active project |
+
+See the full list in [Common Issues](/troubleshooting/common-issues).
+
+## What's next
+
+- Read the [Meeting Transcription use case](/use-cases/meeting-transcription) for a deeper walkthrough of the example.
+- Build a persistent agent that does voice + text — see [Building Agents](/guides/building-agents) and [Serve Mode](/guides/serve-mode).
+- Reference all voice commands in [CLI Commands](/reference/cli-commands#voice).
+- See voice serve actions and events in [Serve Actions](/reference/serve-actions#voice) and [Serve Events](/reference/serve-events#voice-events).

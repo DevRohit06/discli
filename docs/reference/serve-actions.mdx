@@ -1557,3 +1557,120 @@ Create a scheduled event.
 | `channel_id` | no | string | Voice/stage channel ID |
 | `location` | no | string | External location |
 | `req_id` | no | string | Correlation ID |
+
+---
+
+## Voice
+
+All voice actions require the `voice` extra. Most accept either `channel_id` or `guild_id` for routing — when only `channel_id` is given, the guild owning that voice channel is resolved automatically. See the [Voice guide](/guides/voice) for the user-facing tutorial.
+
+### voice_connect
+
+Join a server voice channel.
+
+```json
+{"action": "voice_connect", "channel_id": "1016638171854938152", "req_id": "1"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` | yes | string | Voice channel ID |
+| `req_id` | no | string | Correlation ID |
+
+### voice_disconnect
+
+Leave the active voice channel.
+
+```json
+{"action": "voice_disconnect", "guild_id": "767327865100304394"}
+```
+
+### voice_move
+
+Move the bot to a different voice channel in the same guild.
+
+```json
+{"action": "voice_move", "channel_id": "1016638171854938152"}
+```
+
+### voice_speak
+
+Synthesise text via TTS and play it.
+
+```json
+{"action": "voice_speak", "channel_id": "1016638171854938152", "text": "joining the call now", "voice": "alloy", "speed": 1.0, "tts": "openai"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` or `guild_id` | yes | string | Voice channel or guild ID |
+| `text` | yes | string | Text to synthesise |
+| `voice` | no | string | TTS voice ID (provider-specific) |
+| `speed` | no | number | Speech rate multiplier (default `1.0`) |
+| `tts` | no | string | Override TTS provider (`elevenlabs`, `openai`, `deepgram`) |
+
+### voice_play
+
+Play an audio file or URL via ffmpeg.
+
+```json
+{"action": "voice_play", "channel_id": "1016638171854938152", "source": "https://example.com/intro.mp3"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` or `guild_id` | yes | string | Voice channel or guild ID |
+| `source` | yes | string | File path or HTTP(S) URL |
+
+### voice_stop / voice_pause / voice_resume
+
+Control current playback.
+
+```json
+{"action": "voice_stop", "guild_id": "767327865100304394"}
+{"action": "voice_pause", "guild_id": "767327865100304394"}
+{"action": "voice_resume", "guild_id": "767327865100304394"}
+```
+
+### voice_listen_start
+
+Begin streaming incoming audio to STT. Emits `voice_speech_detected` events.
+
+```json
+{"action": "voice_listen_start", "channel_id": "1016638171854938152", "stt": "deepgram"}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `channel_id` or `guild_id` | yes | string | Voice channel or guild ID |
+| `stt` | no | string | Override STT provider (`deepgram`, `openai`) |
+
+### voice_listen_stop
+
+Stop the listener for this guild.
+
+```json
+{"action": "voice_listen_stop", "guild_id": "767327865100304394"}
+```
+
+### voice_status
+
+List active voice connections.
+
+```json
+{"action": "voice_status"}
+```
+
+**Response:**
+
+```json
+{"event": "response", "ok": true, "connections": [{"guild_id": 767327865100304394, "channel_id": 1016638171854938152, "is_playing": false, "is_listening": true}]}
+```
+
+### voice_set_config
+
+Update voice engine config (provider defaults, VAD thresholds, playback volume) without reconnecting.
+
+```json
+{"action": "voice_set_config", "config": {"tts_provider": "openai", "playback_volume": 0.7}}
+```

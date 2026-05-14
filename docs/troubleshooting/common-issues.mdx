@@ -177,3 +177,70 @@ discli message send 1234567890123456789 "hello"
 2. Find your bot's role
 3. Enable the **Send Messages** permission
 4. If the channel has permission overrides, check those too — channel-level permissions override role permissions
+
+## Voice features error: "Voice features need extras that aren't installed"
+
+**Symptom:** Running any `discli voice` command exits immediately with:
+
+```
+Error: Voice features need extras that aren't installed: PyNaCl, discord-ext-voice-recv, davey.
+Install with: uv sync --extra voice  (or: pip install 'discord-cli-agent[voice]').
+Run `discli doctor` to verify the full setup.
+```
+
+**Cause:** The voice optional dependencies aren't installed. discli's core install is text-only to keep dependency footprint small.
+
+**Fix:**
+
+```bash
+pip install 'discord-cli-agent[voice,deepgram]'
+# or, in a checkout:
+uv sync --extra voice --extra deepgram
+```
+
+Then verify:
+
+```bash
+discli doctor
+```
+
+## Bot joins voice but no transcripts appear
+
+**Symptom:** `discli voice listen` (or the meeting transcriber example) connects, prints `Listening to #...`, but no transcript lines ever appear no matter how loud anyone speaks.
+
+**Possible causes and fixes:**
+
+1. **No STT key set.** Run `discli doctor` — if `DEEPGRAM_API_KEY` (or your provider's key) is not set, set it and restart.
+2. **Bot is server-deafened.** Discord lets server admins deafen bots — check the channel members list and right-click the bot to confirm it isn't muted/deafened server-side.
+3. **DAVE patch failed to install.** `discli doctor` should show `[ok] DAVE/Opus patches`. If it shows `[FAIL]`, the listener can't decrypt audio. File an issue with the doctor output.
+4. **Audio is reaching the bot but STT is rejecting it.** Run `discli voice capture --duration 10` while someone speaks. If the WAV file is non-empty and plays back as real audio, capture works and the issue is downstream (STT key, network, provider quota). If the WAV is empty or only ~20ms long, capture itself is broken — file an issue.
+
+## "OpusError: corrupted stream" in voice logs
+
+**Symptom:** Logs show repeated `OpusError('corrupted stream')` lines, transcripts are empty or sporadic.
+
+**Cause:** Discord's voice transport uses DAVE (end-to-end voice encryption). The off-the-shelf `discord-ext-voice-recv` library doesn't decrypt DAVE, so libopus sees still-encrypted bytes and rejects them. discli ships a runtime monkeypatch that calls `davey.DaveSession.decrypt(...)` between the SecretBox layer and libopus.
+
+If the patch is installed correctly you should still see occasional `[voice] skipping bad opus packet` lines (a few per session is normal — those are out-of-order or corrupt-on-the-wire frames). If you see hundreds, the patch isn't taking effect.
+
+**Fix:**
+
+```bash
+discli doctor
+```
+
+Confirm `DAVE/Opus patches` reports `[ok]`. If it doesn't, your `davey` install is broken — reinstall the voice extra:
+
+```bash
+pip install --force-reinstall 'discord-cli-agent[voice]'
+```
+
+## discli doctor reports a problem
+
+**Symptom:** `discli doctor` exits with `N problem(s) found.`
+
+**Fix:** Each failed line has a `hint:` underneath. Follow those — they list the exact install command or env var for the specific dependency. `--json` output gives the same structured data for scripting:
+
+```bash
+discli doctor --json | jq '.sections[].checks[] | select(.ok==false)'
+```

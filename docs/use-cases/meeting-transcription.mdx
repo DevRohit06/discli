@@ -1,0 +1,186 @@
+---
+title: Meeting Transcription
+description: A discli + Claude bot that joins a Discord voice channel, captures speaker-labelled transcripts, and produces a structured summary on exit
+---
+
+# Meeting Transcription
+
+This use case walks through `examples/meeting_transcriber.py` — a complete, ~280-line script that joins a Discord server voice channel, transcribes every speaker live with their display name, writes to a local markdown file, and on exit asks Claude for a Summary / Key decisions / Action items / Open questions breakdown.
+
+It exists because the most common voice ask isn't "make the bot speak" — it's "give me a searchable record of what was said". This is that.
+
+## What it does
+
+- Connects to a server voice channel by ID using a regular bot token
+- Streams audio to Deepgram (or OpenAI Whisper) and prints each finalised utterance to console with the speaker's display name
+- Appends every line to `~/.discli/transcripts/meeting-<YYYYMMDD-HHMMSS>.md`
+- On Ctrl+C, sends the full transcript to Claude via the Agent SDK and appends a structured summary to the same file
+
+## What it does **not** do
+
+- DM voice or group-DM voice — bot tokens cannot join those per Discord's API
+- Live summary during the call — only on exit
+- Speaker recognition across calls — display names come from the current guild membership
+
+## Setup
+
+```bash
+pip install 'discord-cli-agent[voice,deepgram]' claude-agent-sdk
+discli config set token YOUR_BOT_TOKEN
+export DEEPGRAM_API_KEY=...
+```
+
+Verify with:
+
+```bash
+discli doctor
+```
+
+You want green ticks across CORE and VOICE, plus `DEEPGRAM_API_KEY` set under STT.
+
+<Callout type="note">
+  The Claude summary call uses your existing Claude Code authentication. You do **not** need an Anthropic API key separately.
+</Callout>
+
+## Running it
+
+Get the voice channel ID (right-click in Discord with Developer Mode on, or `discli channel list --type voice`):
+
+```bash
+python examples/meeting_transcriber.py 1016638171854938152
+```
+
+To use OpenAI Whisper instead of Deepgram:
+
+```bash
+export OPENAI_API_KEY=...
+python examples/meeting_transcriber.py 1016638171854938152 --stt openai
+```
+
+During the meeting, the console fills with speaker-labelled lines:
+
+```
+Connected as MyBot#1234 (12345)
+Listening to #standup. Transcript: /home/me/.discli/transcripts/meeting-20260514-103000.md
+Press Ctrl+C to stop and generate a summary.
+
+- **[10:30:14] Roy:** ok let's go around — what did everyone do yesterday
+- **[10:30:22] Sara:** finished the auth migration, started on the rate limiter
+- **[10:30:35] Roy:** nice — anything blocking
+```
+
+Press Ctrl+C to end. You'll see:
+
+```
+Stopping listener…
+Generating summary from 47 line(s)…
+Summary cost: $0.0084
+
+=== Meeting Summary ===
+
+## Summary
+Standup covering yesterday's work and today's plan. Sara finished the auth
+migration; rate limiter is next.
+
+## Key decisions
+- Move forward with read-path-first for the migration this sprint.
+
+## Action items
+- Sara: finish rate limiter today.
+- Roy: write the migration runbook by Friday.
+
+## Open questions
+- Do we backfill old sessions or expire them?
+
+Full transcript + summary saved to: /home/me/.discli/transcripts/meeting-20260514-103000.md
+```
+
+## The output file
+
+The transcript file is plain markdown — readable, grep-able, easy to commit to a private repo or paste into a doc:
+
+```markdown
+# Meeting transcript — 2026-05-14 10:30:00
+
+- **Channel:** #standup (Engineering)
+- **Bot:** MyBot#1234
+
+## Transcript
+
+- **[10:30:14] Roy:** ok let's go around — what did everyone do yesterday
+- **[10:30:22] Sara:** finished the auth migration, started on the rate limiter
+- **[10:30:35] Roy:** nice — anything blocking
+
+---
+
+## Summary
+...
+```
+
+## How it works (~280 LOC)
+
+The script is intentionally small — it reuses `VoiceEngine` from discli rather than rebuilding the voice stack:
+
+```python
+from discli.voice_engine import VoiceEngine
+
+engine = VoiceEngine(config={"stt_provider": stt_provider})
+engine.set_event_handler(on_event)
+await engine.connect(channel)
+await engine.listen_start(channel.guild.id)
+```
+
+The `on_event` callback receives every `voice_speech_detected` event, resolves the user ID to a display name via the guild membership, appends a markdown line to the transcript file, and prints it to console:
+
+```python
+def on_event(event: dict) -> None:
+    if event.get("event") != "voice_speech_detected" or not event.get("is_final"):
+        return
+    uid = int(event.get("user_id") or 0)
+    if uid == client.user.id:
+        return
+    name = resolve_name(uid)
+    ts = datetime.now().strftime("%H:%M:%S")
+    line = f"- **[{ts}] {name}:** {event['text']}"
+    transcript_lines.append(line)
+    print(line, flush=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(line + "\n")
+```
+
+On Ctrl+C, the finally block stops the listener, disconnects, and pipes the whole transcript through Claude:
+
+```python
+async with sdk.ClaudeSDKClient(options) as claude:
+    await claude.query(prompt)
+    async for msg in claude.receive_response():
+        ...
+```
+
+`SUMMARY_SYSTEM_PROMPT` instructs Claude to emit exactly four sections (Summary, Key decisions, Action items, Open questions) using the display names already in the transcript.
+
+## Customising
+
+Common changes:
+
+| Change | Where |
+|--------|-------|
+| Use a different STT provider | `--stt openai` flag, or change the `stt_provider` config default |
+| Change the summary prompt | Edit `SUMMARY_SYSTEM_PROMPT` near the top of the file |
+| Skip the summary entirely | Comment out the `_write_summary(...)` call in `finally` |
+| Post the summary back to Discord | Add a `client.get_channel(channel_id).send(summary)` after writing the file |
+| Custom transcript filename | Change `path = transcript_dir / f"meeting-{stamp}.md"` |
+
+## Privacy
+
+The transcript captures everyone in the channel by display name. Treat it like a recording:
+
+- Tell participants the bot is transcribing — most jurisdictions require consent for recording
+- Store the transcript file somewhere private (the default `~/.discli/transcripts/` is your local home)
+- If you post summaries to a public channel, scrub any sensitive content first
+
+## Where to go next
+
+- See [Voice](/guides/voice) for the full voice stack overview
+- See [Building Agents](/guides/building-agents) if you want a persistent agent that transcribes alongside other tasks
+- The complete file is in the repo at [`examples/meeting_transcriber.py`](https://github.com/DevRohit06/discli/blob/main/examples/meeting_transcriber.py)
