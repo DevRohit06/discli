@@ -76,16 +76,34 @@ class AudioPlayer:
         source = discord.FFmpegPCMAudio(url, before_options=before_options)
         await self._queue.put(source)
 
-    async def enqueue_pcm(self, pcm_data: bytes) -> None:
-        """Enqueue raw PCM bytes piped through FFmpeg."""
+    async def enqueue_pcm(
+        self, pcm_data: bytes, *, sample_rate: int = 24000, channels: int = 1
+    ) -> None:
+        """Enqueue raw PCM bytes piped through FFmpeg.
+
+        FFmpeg cannot auto-detect headerless PCM, so the input format must be
+        declared explicitly. All supported TTS providers (OpenAI, ElevenLabs,
+        Deepgram Aura) emit 24kHz mono signed 16-bit little-endian PCM; FFmpeg
+        resamples that to the 48kHz stereo Discord expects.
+        """
         buf = BytesIO(pcm_data)
-        source = discord.FFmpegPCMAudio(buf, pipe=True)
+        source = discord.FFmpegPCMAudio(
+            buf,
+            pipe=True,
+            before_options=f"-f s16le -ar {sample_rate} -ac {channels}",
+        )
         await self._queue.put(source)
 
     def stop(self) -> None:
-        """Stop current playback."""
+        """Stop current playback. Does NOT stop listening on VoiceRecvClient."""
         if self._vc.is_playing():
-            self._vc.stop()
+            # VoiceRecvClient.stop() would kill listening too; prefer
+            # stop_playing() when available.
+            stop_playing = getattr(self._vc, "stop_playing", None)
+            if callable(stop_playing):
+                stop_playing()
+            else:
+                self._vc.stop()
 
     def pause(self) -> None:
         """Pause current playback."""
@@ -116,7 +134,13 @@ class AudioPlayer:
 
 
 class AudioListener:
-    """Listens to voice channel audio, segments by VAD, feeds to STT."""
+    """Listens to voice channel audio and streams it to the STT provider.
+
+    For meeting transcription (the primary use case) we open one long-lived
+    streaming session per speaker and pump audio packets straight in — letting
+    the STT service handle VAD/utterance segmentation server-side. No local
+    silero/torch step.
+    """
 
     def __init__(
         self,
@@ -128,103 +152,309 @@ class AudioListener:
     ) -> None:
         self._vc = voice_client
         self._stt = stt
+        # vad_threshold/silence_duration_ms retained for API compat — currently
+        # unused since we delegate VAD to the streaming STT provider.
         self._vad_threshold = vad_threshold
         self._silence_duration_ms = silence_duration_ms
         self._on_transcription = on_transcription
-        self._buffers: dict[int, bytearray] = {}
+        # uid -> asyncio.Queue feeding that speaker's STT session.
+        self._queues: dict[int, asyncio.Queue] = {}
+        self._tasks: dict[int, asyncio.Task] = {}
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._running = False
-        self._task: asyncio.Task | None = None
 
     def start(self) -> None:
-        """Begin listening — registers voice_recv callback and starts VAD loop."""
+        """Begin listening via discord-ext-voice-recv (BasicSink callback)."""
         self._running = True
 
         try:
-            from discord_ext import voice_recv  # type: ignore[import]
-
-            def on_voice_data(user: discord.User, data: voice_recv.VoiceData) -> None:
-                uid = user.id if user else 0
-                if uid not in self._buffers:
-                    self._buffers[uid] = bytearray()
-                self._buffers[uid].extend(data.pcm)
-
-            self._vc.listen(on_voice_data)
+            from discord.ext import voice_recv  # type: ignore[import]
         except ImportError:
-            # voice_recv not installed; listening unavailable but don't crash
-            pass
-
-        self._task = asyncio.get_event_loop().create_task(self._vad_loop())
-
-    async def _vad_loop(self) -> None:
-        """Periodically run VAD over buffered audio and transcribe speech segments."""
-        try:
-            import numpy as np  # type: ignore[import]
-            import torch  # type: ignore[import]
-
-            model, utils = torch.hub.load(
-                repo_or_dir="snakers4/silero-vad",
-                model="silero_vad",
-                force_reload=False,
-                trust_repo=True,
+            print(
+                "[voice] discord-ext-voice-recv not installed — listening disabled",
+                flush=True,
             )
-            (get_speech_timestamps, *_) = utils
-        except (ImportError, Exception):
-            # silero-vad / torch not available — loop does nothing
-            while self._running:
-                await asyncio.sleep(0.5)
             return
 
-        sample_rate = 16000
-        min_bytes = sample_rate * 2  # 1 second of 16-bit mono audio
+        if not hasattr(self._vc, "listen"):
+            print(
+                "[voice] voice client has no .listen() — connect must use "
+                "voice_recv.VoiceRecvClient",
+                flush=True,
+            )
+            return
 
-        while self._running:
-            await asyncio.sleep(self._silence_duration_ms / 1000)
+        # voice_recv 0.5.2a179 strips the legacy SecretBox layer but does not
+        # know about DAVE (Discord's end-to-end voice encryption). After the
+        # DAVE handshake completes, every Opus packet is wrapped in DAVE and
+        # libopus rejects it as "corrupted stream". Insert a DAVE decrypt step
+        # between SecretBox decryption and libopus.
+        try:
+            from discord.ext.voice_recv.opus import PacketDecoder  # type: ignore[import]
+            from discord.opus import OpusError  # type: ignore[import]
+            import davey  # type: ignore[import]
 
-            for uid, buf in list(self._buffers.items()):
-                if len(buf) < min_bytes:
-                    continue
+            if not getattr(PacketDecoder, "_discli_dave_patched", False):
+                _orig_decode_packet = PacketDecoder._decode_packet
 
-                raw = bytes(buf)
-                self._buffers[uid] = bytearray()
+                def _dave_decode_packet(self, packet):  # type: ignore[no-redef]
+                    if packet:
+                        try:
+                            vc = self.sink.voice_client
+                            conn = getattr(vc, "_connection", None)
+                            dave = getattr(conn, "dave_session", None) if conn else None
+                            user_id = (
+                                vc._get_id_from_ssrc(self.ssrc)
+                                or self._cached_id
+                            )
+                            if dave is not None and user_id:
+                                try:
+                                    decrypted = dave.decrypt(
+                                        user_id,
+                                        davey.MediaType.audio,
+                                        packet.decrypted_data,
+                                    )
+                                except Exception as exc:
+                                    # Log once per ssrc so a persistent
+                                    # mismatch is visible without flooding.
+                                    if not getattr(self, "_discli_dave_logged", False):
+                                        print(
+                                            f"[voice] DAVE decrypt raised on ssrc={self.ssrc}: "
+                                            f"{exc!r} — falling back to raw bytes",
+                                            flush=True,
+                                        )
+                                        self._discli_dave_logged = True
+                                else:
+                                    if decrypted:
+                                        packet.decrypted_data = decrypted
+                        except Exception:
+                            pass
+                    return _orig_decode_packet(self, packet)
 
-                # Convert 16-bit stereo (discord default) to float32 mono
-                audio_np = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-                if audio_np.ndim == 1 and len(audio_np) % 2 == 0:
-                    audio_np = audio_np.reshape(-1, 2).mean(axis=1)
-                audio_tensor = torch.from_numpy(audio_np)
+                PacketDecoder._decode_packet = _dave_decode_packet  # type: ignore[assignment]
+                PacketDecoder._discli_dave_patched = True  # type: ignore[attr-defined]
+        except Exception as _exc:
+            print(f"[voice] failed to install DAVE patch: {_exc!r}", flush=True)
 
-                timestamps = get_speech_timestamps(
-                    audio_tensor,
-                    model,
-                    threshold=self._vad_threshold,
-                    sampling_rate=sample_rate,
+        # Independent of DAVE: a single bad packet shouldn't kill the entire
+        # listening session. Wrap pop_data so OpusErrors skip the packet
+        # instead of bubbling out of PacketRouter._do_run.
+        try:
+            from discord.ext.voice_recv.opus import PacketDecoder  # type: ignore[import]
+            from discord.opus import OpusError  # type: ignore[import]
+
+            if not getattr(PacketDecoder, "_discli_pop_patched", False):
+                _orig_pop = PacketDecoder.pop_data
+
+                def _safe_pop_data(self, *, timeout: float = 0):  # type: ignore[no-redef]
+                    try:
+                        return _orig_pop(self, timeout=timeout)
+                    except OpusError as exc:
+                        print(
+                            f"[voice] skipping bad opus packet on ssrc={self.ssrc}: "
+                            f"{exc!r}",
+                            flush=True,
+                        )
+                        return None
+
+                PacketDecoder.pop_data = _safe_pop_data  # type: ignore[assignment]
+                PacketDecoder._discli_pop_patched = True  # type: ignore[attr-defined]
+        except Exception as _exc:
+            print(f"[voice] failed to patch PacketDecoder.pop_data: {_exc!r}", flush=True)
+
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = asyncio.get_event_loop()
+
+        loop = self._loop
+        enqueue = self._enqueue
+        packet_counts: dict[int, int] = {}
+
+        def _stereo_to_mono(pcm: bytes) -> bytes:
+            if len(pcm) < 4 or len(pcm) % 4 != 0:
+                return pcm
+            out = bytearray(len(pcm) // 2)
+            mv = memoryview(pcm)
+            for i in range(0, len(pcm), 4):
+                l = int.from_bytes(mv[i : i + 2], "little", signed=True)
+                r = int.from_bytes(mv[i + 2 : i + 4], "little", signed=True)
+                m = (l + r) // 2
+                if m > 32767:
+                    m = 32767
+                elif m < -32768:
+                    m = -32768
+                out[i // 2 : i // 2 + 2] = m.to_bytes(2, "little", signed=True)
+            return bytes(out)
+
+        # Subclass AudioSink directly. voice_recv.BasicSink(callback) hits an
+        # upstream issue where the callback stops firing after the first packet
+        # or two, which presents as "the bot can't hear anything".
+        outer = self
+
+        class _PCMSink(voice_recv.AudioSink):
+            def __init__(self) -> None:
+                super().__init__()
+
+            def wants_opus(self) -> bool:
+                return False
+
+            def write(self, user, data) -> None:
+                # PacketRouter.run() wraps this call in try/except/finally and
+                # tears the reader down on ANY exception — swallow so one bad
+                # packet can't kill the whole listening session.
+                try:
+                    if not outer._running:
+                        return
+                    uid = user.id if user else 0
+                    # One-shot log per speaker confirms audio is flowing.
+                    if uid not in packet_counts:
+                        packet_counts[uid] = 0
+                        print(f"[voice] receiving audio from uid={uid}", flush=True)
+                    packet_counts[uid] += 1
+                    mono = _stereo_to_mono(data.pcm)
+                    loop.call_soon_threadsafe(enqueue, uid, mono)
+                except Exception as exc:
+                    print(
+                        f"[voice] sink.write swallowed {type(exc).__name__}: {exc!r}",
+                        flush=True,
+                    )
+
+            def cleanup(self) -> None:
+                pass
+
+        try:
+            sink = _PCMSink()
+            self._vc.listen(sink)
+            members = []
+            try:
+                members = [
+                    f"{m.id}:{m.display_name}" for m in self._vc.channel.members
+                    if not m.bot
+                ]
+            except Exception:
+                pass
+            print(
+                f"[voice] listening started guild={self._vc.guild.id} "
+                f"channel={getattr(self._vc.channel, 'id', None)} "
+                f"non_bot_members={members}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"[voice] failed to start listening: {exc!r}", flush=True)
+            return
+
+    def _enqueue(self, uid: int, pcm: bytes) -> None:
+        """Push a chunk of pcm onto the per-speaker queue, opening a new
+        streaming STT session the first time we see this user."""
+        if not self._running:
+            return
+        queue = self._queues.get(uid)
+        if queue is None:
+            queue = asyncio.Queue(maxsize=200)
+            self._queues[uid] = queue
+            assert self._loop is not None
+            self._tasks[uid] = self._loop.create_task(
+                self._run_user_session(uid, queue)
+            )
+            print(f"[voice] opened STT session for uid={uid}", flush=True)
+        try:
+            queue.put_nowait(pcm)
+        except asyncio.QueueFull:
+            # Drop oldest chunk under heavy load rather than blocking the loop.
+            try:
+                queue.get_nowait()
+                queue.put_nowait(pcm)
+            except Exception:
+                pass
+
+    async def _run_user_session(
+        self, uid: int, queue: "asyncio.Queue[bytes | None]"
+    ) -> None:
+        """Drain ``queue`` into a streaming STT session for one speaker."""
+
+        async def _audio_iter():
+            while True:
+                chunk = await queue.get()
+                if chunk is None:
+                    return
+                yield chunk
+
+        # Prefer the provider's streaming session if it has one (Deepgram does).
+        stream_session = getattr(self._stt, "stream_session", None)
+        try:
+            if callable(stream_session):
+                # We downmix to mono upstream; tell Deepgram mono.
+                gen = stream_session(_audio_iter(), sample_rate=48000, channels=1)
+            else:
+                gen = self._stt.transcribe(_audio_iter(), sample_rate=48000)
+
+            count = 0
+            async for result in gen:
+                count += 1
+                tag = "FINAL" if result.is_final else "interim"
+                print(
+                    f"[voice] {tag} uid={uid} conf={result.confidence:.2f} "
+                    f"text={result.text!r}",
+                    flush=True,
                 )
-
-                if not timestamps:
-                    continue
-
-                # Extract speech bytes and feed to STT
-                speech_audio = b"".join(
-                    raw[ts["start"] * 2 : ts["end"] * 2] for ts in timestamps
-                )
-
-                async def _audio_gen(data: bytes = speech_audio):
-                    yield data
-
-                async for result in self._stt.transcribe(_audio_gen(), sample_rate=sample_rate):
-                    result.user_id = str(uid)
+                # Append finalized transcripts to a tidy meeting log so the
+                # user has a clean output separate from diagnostic noise.
+                if result.is_final and result.text.strip():
+                    try:
+                        from datetime import datetime
+                        from pathlib import Path
+                        log_dir = Path.home() / ".discli" / "transcripts"
+                        log_dir.mkdir(parents=True, exist_ok=True)
+                        log_file = log_dir / f"guild-{self._vc.guild.id}.log"
+                        with log_file.open("a", encoding="utf-8") as f:
+                            ts = datetime.now().strftime("%H:%M:%S")
+                            f.write(f"[{ts}] uid={uid}: {result.text}\n")
+                    except Exception as exc:
+                        print(f"[voice] failed to write transcript: {exc!r}", flush=True)
+                try:
                     self._on_transcription(str(uid), result)
+                except Exception as exc:
+                    print(f"[voice] on_transcription error: {exc!r}", flush=True)
+            print(f"[voice] STT session for uid={uid} closed (got {count} results)",
+                  flush=True)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Deepgram's ApiError sometimes has empty repr — pull every
+            # attribute we can find so the cause is visible.
+            attrs = {
+                k: getattr(exc, k, None)
+                for k in ("status_code", "body", "headers", "message", "args")
+            }
+            print(
+                f"[voice] STT session for uid={uid} crashed: "
+                f"{type(exc).__name__} attrs={attrs}",
+                flush=True,
+            )
 
     def stop(self) -> None:
-        """Stop listening."""
+        """Stop listening — close all per-speaker STT sessions cleanly."""
         self._running = False
-        try:
-            self._vc.stop_listening()
-        except Exception:
-            pass
-        if self._task is not None:
-            self._task.cancel()
-            self._task = None
+        # Pycord uses stop_recording; older voice_recv path used stop_listening.
+        for method in ("stop_recording", "stop_listening"):
+            fn = getattr(self._vc, method, None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    pass
+                break
+        # Signal each session to flush via a sentinel, then cancel the task.
+        for queue in list(self._queues.values()):
+            try:
+                queue.put_nowait(None)
+            except asyncio.QueueFull:
+                pass
+        for task in list(self._tasks.values()):
+            task.cancel()
+        self._queues.clear()
+        self._tasks.clear()
 
 
 class VoiceEngine:
@@ -270,7 +500,21 @@ class VoiceEngine:
             vc = self.connections[guild_id]
             await vc.move_to(channel)
         else:
-            vc = await channel.connect()
+            # Prefer VoiceRecvClient so we can capture incoming audio.
+            try:
+                from discord.ext import voice_recv  # type: ignore[import]
+                vc = await channel.connect(cls=voice_recv.VoiceRecvClient)
+                print(
+                    f"[voice] connected ({type(vc).__name__}) "
+                    f"to guild={guild_id} channel={channel.id}",
+                    flush=True,
+                )
+            except ImportError:
+                vc = await channel.connect()
+                print(
+                    "[voice] connected default VoiceClient — voice_recv missing",
+                    flush=True,
+                )
             self.connections[guild_id] = vc
 
         player = AudioPlayer(vc, volume=self.config["playback_volume"])
@@ -323,7 +567,8 @@ class VoiceEngine:
 
         tts_voice = voice or self.config.get("tts_voice", "default")
         chunks: list[bytes] = []
-        async for chunk in await self._tts.synthesize(text, voice=tts_voice, speed=speed):
+        # synthesize is an async generator; iterate it directly (do NOT await).
+        async for chunk in self._tts.synthesize(text, voice=tts_voice, speed=speed):
             chunks.append(chunk)
         pcm_data = b"".join(chunks)
 
@@ -362,14 +607,21 @@ class VoiceEngine:
         vc = self.get_connection(guild_id)
 
         def on_transcription(user_id: str, result: TranscriptionResult) -> None:
+            # Only surface finalized transcripts — interim partials cause
+            # duplicate downstream handling (LLM replies per chunk, etc.).
+            if not result.is_final:
+                return
+            vc = self.connections.get(guild_id)
+            channel_id = str(vc.channel.id) if vc and vc.channel else None
             self._emit(
                 {
-                    "event": "voice_transcription",
+                    "event": "voice_speech_detected",
                     "guild_id": guild_id,
+                    "channel_id": channel_id,
                     "user_id": user_id,
                     "text": result.text,
                     "confidence": result.confidence,
-                    "is_final": result.is_final,
+                    "is_final": True,
                 }
             )
 
