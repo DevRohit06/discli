@@ -16,7 +16,7 @@
 
 ---
 
-Manage Discord servers, send messages, react, handle DMs, threads, and monitor events, all from the terminal. Built with security and AI agent integration in mind.
+Manage Discord servers, send messages, react, handle DMs, threads, voice channels (TTS, STT, meeting transcription), and rich interactive components (modals, workflows, dashboards) — all from the terminal. Built with security and AI agent integration in mind.
 
 ## How it works
 
@@ -101,6 +101,18 @@ pip install discord-cli-agent
 
 Requires Python 3.10+.
 
+### Optional: voice features
+
+The core install is text-only. For voice (TTS, STT, meeting transcription) install the `voice` extra plus a provider:
+
+```bash
+pip install 'discord-cli-agent[voice,deepgram]'
+# or with uv:
+uv add 'discord-cli-agent[voice,deepgram]'
+```
+
+You'll also need **libopus** (`apt install libopus0` / `brew install opus`) and **ffmpeg** (for `voice play` and TTS playback). Then verify with `discli doctor` — see [`docs/guides/voice.mdx`](docs/guides/voice.mdx) for the full walkthrough.
+
 ## Setup
 
 1. Create a bot at [Discord Developer Portal](https://discord.com/developers/applications)
@@ -118,6 +130,14 @@ export DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN
 # Option C: Pass directly
 discli --token YOUR_BOT_TOKEN server list
 ```
+
+5. **Verify everything works:**
+
+```bash
+discli doctor
+```
+
+`doctor` reports CORE / VOICE / STT / TTS / TOOLS status. Optional pieces you haven't asked for are silenced — text-only devs see a clean two-section report. Use `--json` for scripting.
 
 ## Usage
 
@@ -257,6 +277,44 @@ discli event delete "My Server" 123456789
 ```bash
 discli typing #general                # 5 seconds (default)
 discli typing #general --duration 10  # 10 seconds
+```
+
+### Voice
+
+Requires the `voice` extra. See [`docs/guides/voice.mdx`](docs/guides/voice.mdx) for the full walkthrough.
+
+```bash
+# Join / leave a voice channel
+discli voice join "general"
+discli voice leave
+
+# Speak via TTS
+export ELEVENLABS_API_KEY=...
+discli voice speak "joining the call now"
+
+# Play a file or URL
+discli voice play /path/to/file.mp3
+discli voice play https://example.com/stream.opus
+discli voice stop / pause / resume
+
+# Transcribe everyone live (streaming STT)
+export DEEPGRAM_API_KEY=...
+discli voice listen --continuous
+
+# Debug: capture raw 48kHz stereo PCM per speaker to WAV files
+discli voice capture --duration 15
+
+# Read-only voice lookups (no `voice` extra needed)
+discli voice status
+discli voice where alice
+discli voice members "general"
+```
+
+For a full live meeting transcriber with Claude-generated summary on exit, see `examples/meeting_transcriber.py`:
+
+```bash
+pip install 'discord-cli-agent[voice,deepgram]' claude-agent-sdk
+python examples/meeting_transcriber.py <voice_channel_id>
 ```
 
 ### Live Event Monitoring
