@@ -76,7 +76,8 @@ class DeepgramSTT:
         *,
         sample_rate: int = 48000,
         channels: int = 1,
-        model: str = "nova-2",
+        model: str | None = None,
+        language: str | None = None,
     ) -> AsyncIterator[TranscriptionResult]:
         """Stream audio to Deepgram's live transcription websocket and yield
         ``TranscriptionResult`` objects as they arrive.
@@ -97,8 +98,14 @@ class DeepgramSTT:
         import json as _json
         from urllib.parse import urlencode
 
+        if model is None:
+            model = os.environ.get("DISCLI_DEEPGRAM_MODEL", "nova-3")
+        if language is None:
+            language = os.environ.get("DISCLI_DEEPGRAM_LANGUAGE", "multi")
+
         params = {
             "model": model,
+            "language": language,
             "encoding": "linear16",
             "sample_rate": str(sample_rate),
             "channels": str(channels),
