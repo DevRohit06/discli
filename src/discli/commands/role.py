@@ -12,8 +12,17 @@ def role_group():
 
 @role_group.command("list")
 @click.argument("server")
+@click.option(
+    "--with-member-counts",
+    is_flag=True,
+    default=False,
+    help=(
+        "Compute per-role member counts. Off by default because it iterates the "
+        "entire member list (slow on large servers, needs the Server Members intent)."
+    ),
+)
 @click.pass_context
-def role_list(ctx, server):
+def role_list(ctx, server, with_member_counts):
     """List roles in a server."""
 
     def action(client):
@@ -21,14 +30,17 @@ def role_list(ctx, server):
             guild = await resolve_guild(client, server)
             fetched_roles = await guild.fetch_roles()
             member_counts = None
-            try:
-                member_counts = {role.id: 0 for role in fetched_roles}
-                async for member in guild.fetch_members(limit=None):
-                    for member_role in member.roles:
-                        if member_role.id in member_counts:
-                            member_counts[member_role.id] += 1
-            except discord.Forbidden:
-                member_counts = None
+            if with_member_counts:
+                try:
+                    member_counts = {role.id: 0 for role in fetched_roles}
+                    async for member in guild.fetch_members(limit=None):
+                        for member_role in member.roles:
+                            if member_role.id in member_counts:
+                                member_counts[member_role.id] += 1
+                except discord.Forbidden:
+                    # Reset to None so counts are reported as unavailable rather
+                    # than silently as 0 for every role.
+                    member_counts = None
             roles = [
                 {
                     "id": str(role.id),

@@ -1122,12 +1122,12 @@ Timeout a member, preventing them from sending messages or joining voice.
 
 ### role_list
 
-List roles in a server.
+List roles in a server. Per-role `members` counts are `null` by default because computing them iterates the entire member list (slow and rate-limit-prone on large servers, requires the privileged Server Members intent). Send `"with_member_counts": true` to compute them; if the bot lacks the Server Members intent the counts come back as `null` (unavailable) instead of `0`.
 
 **Request:**
 
 ```json
-{"action": "role_list", "guild_id": "123456", "req_id": "90"}
+{"action": "role_list", "guild_id": "123456", "with_member_counts": true, "req_id": "90"}
 ```
 
 **Response:**
@@ -1146,6 +1146,7 @@ List roles in a server.
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
 | `guild_id` | yes | string | Server ID |
+| `with_member_counts` | no | boolean | Compute per-role member counts. Default `false` (counts returned as `null`) |
 | `req_id` | no | string | Correlation ID |
 
 ### role_assign

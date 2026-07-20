@@ -505,15 +505,19 @@ Manage server roles.
 
 ### role list
 
-List roles in a server.
+List roles in a server. Per-role member counts are omitted by default (reported as `unavailable`) because computing them iterates the entire member list, which is slow and rate-limit-prone on large servers and requires the privileged Server Members intent. Pass `--with-member-counts` to compute them.
 
 ```
-discli role list <server>
+discli role list <server> [OPTIONS]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `SERVER` | yes | Server name or ID |
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--with-member-counts` | no | Compute per-role member counts. Off by default (Recommended) |
 
 ### role create
 

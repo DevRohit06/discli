@@ -1348,14 +1348,20 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         roles = []
         fetched_roles = await guild.fetch_roles()
         member_counts = None
-        try:
-            member_counts = {role.id: 0 for role in fetched_roles}
-            async for member in guild.fetch_members(limit=None):
-                for member_role in member.roles:
-                    if member_role.id in member_counts:
-                        member_counts[member_role.id] += 1
-        except discord.Forbidden:
-            pass
+        # Member counts are opt-in: guild.fetch_members(limit=None) iterates the
+        # entire member list, which is slow and rate-limit-prone on large servers
+        # and requires the privileged Server Members intent. Skip it by default.
+        if cmd.get("with_member_counts"):
+            try:
+                member_counts = {role.id: 0 for role in fetched_roles}
+                async for member in guild.fetch_members(limit=None):
+                    for member_role in member.roles:
+                        if member_role.id in member_counts:
+                            member_counts[member_role.id] += 1
+            except discord.Forbidden:
+                # Reset to None so counts are reported as unavailable rather than
+                # silently as 0 for every role (the dict was already initialised).
+                member_counts = None
         for r in fetched_roles:
             if r.name == "@everyone":
                 continue

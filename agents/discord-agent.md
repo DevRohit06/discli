@@ -71,7 +71,8 @@ discli server info "server name"
 
 ### Roles
 ```bash
-discli role list "server name"
+discli role list "server name"                       # member counts omitted by default
+discli role list "server name" --with-member-counts  # compute per-role member counts
 discli role create "server name" "role-name" --color ff0000 --permissions 8
 discli role delete "server name" <role>
 discli role edit "server name" "Role" --name "New Name" --color 00ff00 --hoist --mentionable
