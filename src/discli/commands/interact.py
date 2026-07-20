@@ -4,7 +4,7 @@ import re
 import click
 import discord
 
-from discli.client import run_discord
+from discli.client import run_rest
 from discli.utils import output, resolve_channel
 
 
@@ -36,7 +36,7 @@ def interact_modal(ctx, title, fields, channel, server):
         async def _action(client):
             from discli.interact_engine import InteractEngine
 
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
 
             # Parse field specs
             parsed_fields = []
@@ -92,7 +92,7 @@ def interact_modal(ctx, title, fields, channel, server):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ def workflow_start(ctx, definition_file, channel, user_id):
                 steps=steps,
             )
 
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             engine = InteractEngine()
             workflow_key = await engine.workflow_start(ch, user_id, definition)
 
@@ -154,7 +154,7 @@ def workflow_start(ctx, definition_file, channel, user_id):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +198,7 @@ def dashboard_create(ctx, spec_file, channel):
                 refresh_interval=raw.get("refresh_interval", 0),
             )
 
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             engine = InteractEngine()
             dashboard_id = await engine.dashboard_create(ch, definition)
 
@@ -211,7 +211,7 @@ def dashboard_create(ctx, spec_file, channel):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @dashboard_group.command("delete")
@@ -225,7 +225,7 @@ def dashboard_delete(ctx, dashboard_id, channel):
         async def _action(client):
             from discli.interact_engine import InteractEngine
 
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             engine = InteractEngine()
             await engine.dashboard_delete(dashboard_id, ch)
 
@@ -238,4 +238,4 @@ def dashboard_delete(ctx, dashboard_id, channel):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)

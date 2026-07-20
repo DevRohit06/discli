@@ -3,8 +3,24 @@ import asyncio
 import click
 import discord
 
-from discli.client import run_discord
-from discli.utils import output, resolve_guild
+from discli.client import run_gateway
+from discli.utils import output
+
+
+def _resolve_cached_guild(client, identifier: str):
+    """Resolve a guild from Gateway state for voice operations."""
+    try:
+        guild = client.get_guild(int(identifier))
+        if guild is not None:
+            return guild
+    except ValueError:
+        pass
+    matches = [guild for guild in client.guilds if guild.name.casefold() == identifier.casefold()]
+    if not matches:
+        raise click.ClickException(f"Server not found: {identifier}")
+    if len(matches) > 1:
+        raise click.ClickException(f"Multiple servers match '{identifier}'. Use a server ID.")
+    return matches[0]
 
 
 def _require_voice_extras_or_exit() -> None:
@@ -29,7 +45,7 @@ def _require_voice_extras_or_exit() -> None:
 def _resolve_voice_channel(client, channel_identifier: str, server: str | None):
     """Resolve a voice channel by name or ID, optionally scoped to a server."""
     if server:
-        guilds = [resolve_guild(client, server)]
+        guilds = [_resolve_cached_guild(client, server)]
     else:
         guilds = client.guilds
 
@@ -54,7 +70,7 @@ def _resolve_voice_channel(client, channel_identifier: str, server: str | None):
 def _find_active_voice_guild(client, server: str | None):
     """Return the guild that has an active voice_client, or raise ClickException."""
     if server:
-        guild = resolve_guild(client, server)
+        guild = _resolve_cached_guild(client, server)
         if guild.voice_client is not None:
             return guild
         raise click.ClickException(f"No active voice connection in server: {server}")
@@ -101,7 +117,7 @@ def voice_join(ctx, channel, server):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("leave")
@@ -129,7 +145,7 @@ def voice_leave(ctx, server):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("speak")
@@ -165,7 +181,7 @@ def voice_speak(ctx, text, server, voice_name, speed):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("play")
@@ -199,7 +215,7 @@ def voice_play(ctx, source, server, volume):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("stop")
@@ -228,7 +244,7 @@ def voice_stop(ctx, server):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("pause")
@@ -255,7 +271,7 @@ def voice_pause(ctx, server):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("resume")
@@ -282,7 +298,7 @@ def voice_resume(ctx, server):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("listen")
@@ -359,7 +375,7 @@ def voice_listen(ctx, server, duration, continuous):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("capture")
@@ -520,7 +536,7 @@ def voice_capture(ctx, server, duration, output_dir):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("where")
@@ -532,7 +548,7 @@ def voice_where(ctx, user, server):
 
     def action(client):
         async def _action(client):
-            guilds = [resolve_guild(client, server)] if server else client.guilds
+            guilds = [_resolve_cached_guild(client, server)] if server else client.guilds
 
             try:
                 user_id = int(user)
@@ -577,7 +593,7 @@ def voice_where(ctx, user, server):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("members")
@@ -622,7 +638,7 @@ def voice_members(ctx, channel, server):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})
 
 
 @voice_group.command("status")
@@ -660,4 +676,4 @@ def voice_status(ctx):
 
         return _action(client)
 
-    run_discord(ctx, action)
+    run_gateway(ctx, action, features={"voice"})

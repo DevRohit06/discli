@@ -34,10 +34,10 @@ This guide walks you through creating a Discord application, inviting your bot t
     </Callout>
   </Step>
 
-  <Step title="Enable the MESSAGE CONTENT intent">
+  <Step title="Enable MESSAGE CONTENT for live message events">
     On the same **Bot** settings page, scroll down to **Privileged Gateway Intents**.
 
-    Enable **MESSAGE CONTENT INTENT**. This allows your bot to read the contents of messages sent in servers.
+    Enable **MESSAGE CONTENT INTENT** if you will use `discli listen`, `discli serve`, or another feature that consumes live message events. One-shot REST commands do not open a Gateway session, although Discord may still restrict message-content fields on HTTP responses.
 
     Click **Save Changes**.
 

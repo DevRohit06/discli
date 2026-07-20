@@ -1,8 +1,15 @@
 import click
 import discord
 
-from discli.client import run_discord
-from discli.utils import output, resolve_channel, resolve_guild
+from discli.client import run_rest
+from discli.utils import (
+    fetch_guilds,
+    output,
+    resolve_channel,
+    resolve_guild,
+    resolve_member,
+    resolve_role,
+)
 
 
 @click.group("channel")
@@ -19,12 +26,12 @@ def channel_list(ctx, server):
     def action(client):
         async def _action(client):
             if server:
-                guilds = [resolve_guild(client, server)]
+                guilds = [await resolve_guild(client, server)]
             else:
-                guilds = client.guilds
+                guilds = await fetch_guilds(client)
             channels = []
             for g in guilds:
-                for ch in g.channels:
+                for ch in await g.fetch_channels():
                     if isinstance(ch, (discord.TextChannel, discord.VoiceChannel, discord.ForumChannel)):
                         channels.append({
                             "id": str(ch.id),
@@ -36,7 +43,7 @@ def channel_list(ctx, server):
             output(ctx, channels, plain_text="\n".join(plain_lines) if plain_lines else "No channels found.")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @channel_group.command("create")
@@ -50,7 +57,7 @@ def channel_create(ctx, server, name, channel_type, topic):
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
+            guild = await resolve_guild(client, server)
             if channel_type == "text":
                 ch = await guild.create_text_channel(name, topic=topic)
             elif channel_type == "voice":
@@ -63,7 +70,7 @@ def channel_create(ctx, server, name, channel_type, topic):
             output(ctx, data, plain_text=f"Created #{ch.name} (ID: {ch.id})")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @channel_group.command("delete")
@@ -76,14 +83,14 @@ def channel_delete(ctx, channel):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             name = ch.name
             await ch.delete()
             audit_log("channel delete", {"channel": name})
             output(ctx, {"id": str(ch.id), "deleted": True}, plain_text=f"Deleted #{name}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @channel_group.command("info")
@@ -94,12 +101,13 @@ def channel_info(ctx, channel):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
+            guild = await client.fetch_guild(ch.guild.id)
             data = {
                 "id": str(ch.id),
                 "name": ch.name,
                 "type": str(ch.type),
-                "server": ch.guild.name,
+                "server": guild.name,
                 "topic": getattr(ch, "topic", None),
                 "created_at": ch.created_at.isoformat(),
             }
@@ -107,7 +115,7 @@ def channel_info(ctx, channel):
             output(ctx, data, plain_text="\n".join(plain_lines))
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @channel_group.command("edit")
@@ -122,7 +130,7 @@ def channel_edit(ctx, channel, name, topic, slowmode, nsfw):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             kwargs = {}
             if name is not None:
                 kwargs["name"] = name
@@ -139,7 +147,7 @@ def channel_edit(ctx, channel, name, topic, slowmode, nsfw):
             output(ctx, data, plain_text=f"Updated #{ch.name}: {', '.join(kwargs.keys())}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @channel_group.command("forum-post")
@@ -152,7 +160,7 @@ def channel_forum_post(ctx, channel, title, content, files):
     """Create a post in a forum channel."""
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             if not isinstance(ch, discord.ForumChannel):
                 raise click.ClickException(f"#{ch.name} is not a forum channel")
             attachments = [discord.File(f) for f in files]
@@ -168,7 +176,7 @@ def channel_forum_post(ctx, channel, title, content, files):
             }
             output(ctx, data, plain_text=f"Created forum post '{title}' in #{ch.name}")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @channel_group.command("set-permissions")
@@ -182,32 +190,12 @@ def channel_set_permissions(ctx, channel, target, allow, deny, target_type):
     """Set permission overwrites for a role or member on a channel."""
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             guild = ch.guild
             if target_type == "role":
-                obj = None
-                try:
-                    role_id = int(target)
-                    obj = guild.get_role(role_id)
-                except ValueError:
-                    for role in guild.roles:
-                        if role.name.lower() == target.lower():
-                            obj = role
-                            break
-                if not obj:
-                    raise click.ClickException(f"Role not found: {target}")
+                obj = await resolve_role(guild, target)
             else:
-                obj = None
-                try:
-                    member_id = int(target)
-                    obj = guild.get_member(member_id)
-                except ValueError:
-                    for member in guild.members:
-                        if member.name.lower() == target.lower():
-                            obj = member
-                            break
-                if not obj:
-                    raise click.ClickException(f"Member not found: {target}")
+                obj = await resolve_member(guild, target)
             overwrite = ch.overwrites_for(obj)
             valid_perms = {p for p, _ in discord.Permissions()}
             if allow:
@@ -226,4 +214,4 @@ def channel_set_permissions(ctx, channel, target, allow, deny, target_type):
             data = {"channel": ch.name, "target": str(obj), "allow": allow, "deny": deny}
             output(ctx, data, plain_text=f"Updated permissions for {obj} on #{ch.name}")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)

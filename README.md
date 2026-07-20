@@ -37,6 +37,14 @@ discli serve
 
 Every command has a `--json` flag for scripts. Identifiers accept both names and IDs (`#general` or `123456789`, `alice` or her snowflake). One token, one CLI, no boilerplate.
 
+## Connection model
+
+One-shot commands use Discord's HTTP API and do not open a Gateway session or consume an `IDENTIFY`. This includes message, reaction, channel, role, member, thread, poll, webhook, event, DM, and typing commands.
+
+Gateway connections are reserved for features that need live Discord state: `listen`, `serve`, and voice commands. These commands request only the intents required by their selected event types; discli does not use `Intents.all()`.
+
+Some Discord HTTP endpoints and response fields are still restricted by application settings. For example, listing all guild members can require Server Members Intent, and reading arbitrary message content can require Message Content Intent. Those restrictions do not cause one-shot commands to open a Gateway connection.
+
 ## What you can do
 
 - **Messages**: send, edit, delete, search, history, embeds, attachments, replies
@@ -70,7 +78,7 @@ You'll also need **libopus** (`apt install libopus0` / `brew install opus`) and 
 ## Setup
 
 1. Create a bot at [Discord Developer Portal](https://discord.com/developers/applications).
-2. Enable the intents you need (Message Content for reading messages, Members for member lookups, Voice State if you'll touch voice). Pick least-privilege; don't enable everything.
+2. Enable privileged intents only when a selected feature needs them (Message Content for live message content, Members for member lists or name lookups). Standard intents such as Voice States are requested automatically by the relevant Gateway command.
 3. Invite the bot to your server with the permissions you actually need.
 4. Save your token:
 

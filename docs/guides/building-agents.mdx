@@ -863,12 +863,12 @@ See [`agents/ai_serve_agent.py`](/agents/ai_serve_agent.py) for the full impleme
 </Card>
 </CardGroup>
 
-## Architecture Decision: listen vs serve
+## Architecture Decision: standalone CLI vs serve
 
-| Feature | `discli listen` (Levels 1-2) | `discli serve` (Levels 3-5) |
+| Feature | Standalone CLI (Levels 1-2) | `discli serve` (Levels 3-5) |
 |---------|------------------------------|------------------------------|
-| Connection | New connection per action | Single persistent connection |
-| Latency | 2-3s per action | Under 100ms per action |
+| Connection | One HTTP lifecycle per action | Single persistent Gateway connection |
+| Latency | HTTP request latency per action | Under 100ms per action |
 | Streaming | Not possible | Full support |
 | Threads | Can create (via CLI) | Can create and manage |
 | Typing indicator | Not practical | Full support |

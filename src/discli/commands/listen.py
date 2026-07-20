@@ -13,7 +13,11 @@ import discord
 @click.pass_context
 def listen_cmd(ctx, server, channel, events, ignore_bots):
     """Listen for real-time Discord events. Ctrl+C to stop."""
-    from discli.client import resolve_token
+    from discli.client import (
+        build_gateway_intents,
+        gateway_features_for_events,
+        resolve_token,
+    )
     from discli.security import is_command_allowed
 
     profile = ctx.obj.get("profile")
@@ -26,7 +30,7 @@ def listen_cmd(ctx, server, channel, events, ignore_bots):
     use_json = ctx.obj.get("use_json", False)
     event_filter = set(events.split(",")) if events else None
 
-    intents = discord.Intents.all()
+    intents = build_gateway_intents(gateway_features_for_events(event_filter))
     client = discord.Client(intents=intents)
 
     def should_emit(guild, ch):
@@ -228,7 +232,19 @@ def listen_cmd(ctx, server, channel, events, ignore_bots):
             plain = f"{member} voice state updated in #{after.channel.name if after.channel else '?'}"
         emit(event_data, plain)
 
+    async def run_client():
+        try:
+            await client.start(token)
+        finally:
+            if not client.is_closed():
+                await client.close()
+
     try:
-        asyncio.run(client.start(token))
+        asyncio.run(run_client())
     except KeyboardInterrupt:
         click.echo("\nStopped listening.", err=True)
+    except discord.PrivilegedIntentsRequired:
+        raise click.ClickException(
+            "Discord rejected a privileged intent required by the selected events. "
+            "Message events require Message Content; member events require Server Members."
+        )

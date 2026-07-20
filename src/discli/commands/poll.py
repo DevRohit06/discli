@@ -3,7 +3,7 @@ import datetime
 import click
 import discord
 
-from discli.client import run_discord
+from discli.client import run_rest
 from discli.utils import output, resolve_channel
 
 
@@ -37,7 +37,7 @@ def poll_create(ctx, channel, question, answers, duration, multiple, emoji):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             poll = discord.Poll(
                 question=question,
                 duration=datetime.timedelta(hours=duration),
@@ -61,7 +61,7 @@ def poll_create(ctx, channel, question, answers, duration, multiple, emoji):
             output(ctx, data, plain_text=f"Poll created in #{ch.name} (message {msg.id}): {question}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @poll_group.command("results")
@@ -72,7 +72,7 @@ def poll_results(ctx, channel, message_id):
     """View poll results."""
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             msg = await ch.fetch_message(int(message_id))
             if not msg.poll:
                 raise click.ClickException("Message has no poll")
@@ -94,7 +94,7 @@ def poll_results(ctx, channel, message_id):
                 plain_lines.append(f"  {a['text']}: {a['vote_count']} votes")
             output(ctx, data, plain_text="\n".join(plain_lines))
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @poll_group.command("end")
@@ -105,11 +105,11 @@ def poll_end(ctx, channel, message_id):
     """End a poll early."""
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             msg = await ch.fetch_message(int(message_id))
             if not msg.poll:
                 raise click.ClickException("Message has no poll")
             await msg.end_poll()
             output(ctx, {"ended": True}, plain_text=f"Ended poll on message {message_id}")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)
