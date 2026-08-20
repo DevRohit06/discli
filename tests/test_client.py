@@ -1,4 +1,5 @@
 import click
+import discord
 import pytest
 
 from discli.client import (
@@ -8,6 +9,7 @@ from discli.client import (
     run_gateway_action,
     run_rest_action,
 )
+from discli.utils import resolve_member
 
 
 def test_resolve_token_from_arg():
@@ -195,3 +197,103 @@ async def test_run_gateway_action_closes_client_when_start_fails(monkeypatch):
         await run_gateway_action("token", action, build_gateway_intents())
     assert fake_client is not None
     assert fake_client.closed
+
+
+class _ForbiddenResponse:
+    """Minimal stand-in for discord's HTTP response, to build discord.Forbidden."""
+
+    status = 403
+    reason = "Forbidden"
+    headers = {}
+
+    def json(self):
+        return {"code": 50001, "message": "Missing Access"}
+
+    @property
+    def real_url(self):
+        return "http://example.com"
+
+
+async def _run_with_real_client(monkeypatch, action):
+    """Drive run_rest_action with a real discord.Client, minus the network.
+
+    These tests deliberately avoid a stub client: the behaviour under test lives
+    in discord.py's ConnectionState, so a fake would pass no matter what
+    run_rest_action configures.
+    """
+
+    async def fake_login(self, token):
+        return None
+
+    monkeypatch.setattr(discord.Client, "login", fake_login)
+    return await run_rest_action("token", action)
+
+
+@pytest.mark.asyncio
+async def test_run_rest_action_client_can_iterate_guild_members(monkeypatch):
+    """Guild.fetch_members() must not trip discord.py's local intent guard.
+
+    fetch_members() raises ClientException when Intents.members is unset, before
+    any request is issued. That guard is client-side, so it fires even when the
+    developer portal has the intent enabled, and ClientException is a sibling of
+    HTTPException -- so neither _run() nor the Forbidden handler in
+    utils.resolve_member() catches it. Building the REST client with
+    Intents.none() therefore broke `member list`, `member info <name>` and
+    `role list --with-member-counts` outright.
+    """
+    seen = {}
+
+    async def action(client):
+        async def fake_get_members(guild_id, retrieve, after_id):
+            seen["guild_id"] = guild_id
+            return []
+
+        monkeypatch.setattr(client._connection.http, "get_members", fake_get_members)
+        # Exactly the Guild that Client.fetch_channel()/fetch_guild() produce.
+        guild = client._connection._get_or_create_unavailable_guild(4242)
+        return [member async for member in guild.fetch_members(limit=1)]
+
+    assert await _run_with_real_client(monkeypatch, action) == []
+    assert seen["guild_id"] == 4242
+
+
+@pytest.mark.asyncio
+async def test_run_rest_action_surfaces_missing_members_intent_as_click_exception(monkeypatch):
+    """A disabled Server Members intent must reach the actionable hint.
+
+    resolve_member() catches discord.Forbidden to explain that name lookup needs
+    the Server Members intent, but that handler is only reachable if the request
+    actually goes out. With Intents.none() the local guard fires first and the
+    user gets a raw ClientException traceback instead.
+    """
+
+    async def action(client):
+        async def fake_get_members(guild_id, retrieve, after_id):
+            raise discord.Forbidden(_ForbiddenResponse(), "Missing Access")
+
+        monkeypatch.setattr(client._connection.http, "get_members", fake_get_members)
+        guild = client._connection._get_or_create_unavailable_guild(4242)
+        return await resolve_member(guild, "someone")
+
+    with pytest.raises(click.ClickException, match="Server Members privileged intent"):
+        await _run_with_real_client(monkeypatch, action)
+
+
+@pytest.mark.asyncio
+async def test_run_rest_action_requests_no_privileged_content_intents(monkeypatch):
+    """Relax only what the local guard needs; nothing reaches Discord anyway.
+
+    Intents are transmitted solely in the Gateway IDENTIFY, so a login-only
+    client never sends them -- but keeping the set minimal preserves the intent
+    of the REST/Gateway split if this client is ever given a socket.
+    """
+
+    async def action(client):
+        return client.intents
+
+    intents = await _run_with_real_client(monkeypatch, action)
+
+    assert intents.members
+    assert not intents.message_content
+    assert not intents.presences
+    assert not intents.guilds

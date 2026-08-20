@@ -62,7 +62,16 @@ def gateway_features_for_events(events: set[str] | None) -> set[str]:
 
 async def run_rest_action(token: str, action: Action) -> Any:
     """Authenticate for HTTP operations without opening a Gateway session."""
-    client = discord.Client(intents=discord.Intents.none())
+    # discord.py guards Guild.fetch_members() locally on Intents.members and raises
+    # ClientException before issuing any request. That check is client-side, so it
+    # fires regardless of what the developer portal allows, and ClientException is a
+    # sibling of HTTPException -- neither _run() nor the Forbidden handlers below
+    # catch it. Intents are only ever transmitted in the Gateway IDENTIFY, so on a
+    # login-only client this flag never reaches Discord; the real privileged-intent
+    # check still happens server-side and surfaces as a 403.
+    rest_intents = discord.Intents.none()
+    rest_intents.members = True
+    client = discord.Client(intents=rest_intents)
     try:
         await client.login(token)
         return await action(client)
