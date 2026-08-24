@@ -421,3 +421,79 @@ def message_bulk_delete(ctx, channel, message_ids):
         return _action(client)
 
     run_rest(ctx, action)
+
+
+@message_group.command("pin")
+@click.argument("channel")
+@click.argument("message_id")
+@click.option("--reason", default=None, help="Audit log reason.")
+@click.pass_context
+def message_pin(ctx, channel, message_id, reason):
+    """Pin a message to its channel.
+
+    Needs the Pin Messages permission, which Discord split out of
+    Manage Messages in January 2026.
+    """
+    from discli.security import audit_log
+
+    def action(client):
+        async def _action(client):
+            ch = await resolve_channel(client, channel)
+            msg = await ch.fetch_message(int(message_id))
+            await msg.pin(reason=reason)
+            audit_log("message pin", {"channel": channel, "message_id": message_id})
+            output(ctx, {"id": str(msg.id), "pinned": True}, plain_text=f"Pinned message {msg.id}")
+        return _action(client)
+
+    run_rest(ctx, action)
+
+
+@message_group.command("unpin")
+@click.argument("channel")
+@click.argument("message_id")
+@click.option("--reason", default=None, help="Audit log reason.")
+@click.pass_context
+def message_unpin(ctx, channel, message_id, reason):
+    """Unpin a message from its channel."""
+    from discli.security import audit_log
+
+    def action(client):
+        async def _action(client):
+            ch = await resolve_channel(client, channel)
+            msg = await ch.fetch_message(int(message_id))
+            await msg.unpin(reason=reason)
+            audit_log("message unpin", {"channel": channel, "message_id": message_id})
+            output(ctx, {"id": str(msg.id), "pinned": False}, plain_text=f"Unpinned message {msg.id}")
+        return _action(client)
+
+    run_rest(ctx, action)
+
+
+@message_group.command("pins")
+@click.argument("channel")
+@click.option("--limit", default=50, type=int, help="Max pinned messages to return.")
+@click.pass_context
+def message_pins(ctx, channel, limit):
+    """List pinned messages in a channel."""
+
+    def action(client):
+        async def _action(client):
+            ch = await resolve_channel(client, channel)
+            pinned = [
+                {
+                    "id": str(msg.id),
+                    "author": str(msg.author),
+                    "content": msg.content,
+                    "timestamp": msg.created_at.isoformat(),
+                    "jump_url": msg.jump_url,
+                }
+                async for msg in ch.pins(limit=limit)
+            ]
+            plain_lines = [
+                f"[{p['timestamp'][:19].replace('T', ' ')}] {p['author']}: {p['content']} (ID: {p['id']})"
+                for p in pinned
+            ]
+            output(ctx, pinned, plain_text="\n".join(plain_lines) if plain_lines else "No pinned messages.")
+        return _action(client)
+
+    run_rest(ctx, action)

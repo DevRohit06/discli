@@ -21,7 +21,11 @@ discli message search <channel> "query" --limit 100 [--author name] [--before YY
 discli message history <channel> --days 7
 discli message history <channel> --hours 24 --limit 500
 discli message bulk-delete <channel> <msg_id1> <msg_id2> ...
+discli message pin <channel> <message_id> [--reason "why"]
+discli message unpin <channel> <message_id>
+discli message pins <channel> --limit 50
 ```
+Pinning needs the **Pin Messages** permission, which Discord split out of Manage Messages in January 2026.
 
 ### Reactions
 ```bash
@@ -67,12 +71,18 @@ discli thread remove-member <thread> <member_id>
 ```bash
 discli server list
 discli server info "server name"
+discli server edit "server name" --name "New Name" --description "..." --icon icon.png --banner banner.png
+discli server edit "server name" --verification-level high --system-channel #general
+discli server audit-log "server name" --limit 50
+discli server audit-log "server name" --action ban --user <member> --changes
 ```
+`server audit-log` reads **Discord's** log of who did what in the server (needs View Audit Log).
+That is a different thing from `discli audit`, which shows what this CLI did locally.
 
 ### Roles
 ```bash
 discli role list "server name"                       # member counts omitted by default
-discli role list "server name" --with-member-counts  # compute per-role member counts
+discli role list "server name" --with-member-counts  # one extra request; needs Manage Roles
 discli role create "server name" "role-name" --color ff0000 --permissions 8
 discli role delete "server name" <role>
 discli role edit "server name" "Role" --name "New Name" --color 00ff00 --hoist --mentionable
@@ -89,6 +99,8 @@ discli member ban "server name" <member> --reason "reason"
 discli member unban "server name" <member>
 discli member timeout "server name" member 3600 --reason "Spam"
 discli member timeout "server name" member 0    # remove timeout
+discli member nick "server name" <member> "New Nickname"
+discli member nick "server name" <member> --clear
 ```
 
 ### Typing Indicator
@@ -106,8 +118,32 @@ discli poll end <channel> <message_id>
 ```bash
 discli webhook list <channel>
 discli webhook create <channel> "webhook-name"
+discli webhook send <channel> <webhook_id_or_name> "text" [--username "Name"] [--avatar-url URL]
+discli webhook send <channel> "announcer" "text" --embed-title "Title" --file report.pdf
 discli webhook delete <channel> <webhook_id>
 ```
+`webhook send` posts under a custom name and avatar without changing the bot's own identity.
+
+### Invites
+```bash
+discli invite list "server name"
+discli invite info <code_or_url>
+discli invite create <channel> --max-age 3600 --max-uses 5 --temporary
+discli invite create <voice_channel> --activity <application_id>   # launches a Discord Activity
+discli invite delete <code_or_url>
+```
+`--activity` takes a numeric application ID and only works on voice channels.
+
+### Emoji
+```bash
+discli emoji list "server name"
+discli emoji upload "server name" <name> path/to/image.png [--role "Role"]
+discli emoji rename "server name" <emoji_name_or_id> <new_name>
+discli emoji delete "server name" <emoji_name_or_id>
+```
+Images must be 256 KB or smaller. Uploading needs the **Create Expressions** permission,
+which Discord split out of Manage Expressions in February 2026.
+`emoji list` returns a `mention` field (`<:name:id>`) you can pass straight to `discli reaction add`.
 
 ### Events
 ```bash
@@ -129,7 +165,10 @@ discli voice resume <voice_channel>
 discli voice listen <voice_channel> --stt deepgram|openai --duration 10
 discli voice status <voice_channel>
 discli voice config <voice_channel> --tts elevenlabs --stt deepgram --vad enabled
+discli voice move "server name" <member> <voice_channel> [--reason "why"]
 ```
+`voice move` relocates a **member** who is already connected to voice (needs Move Members).
+It is plain HTTP -- no voice extras or ffmpeg required, unlike the commands above it.
 
 ### Interactive
 ```bash

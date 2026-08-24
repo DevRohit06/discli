@@ -23,6 +23,8 @@ DESTRUCTIVE_COMMANDS = {
     "webhook delete",
     "event delete",
     "message bulk-delete",
+    "emoji delete",
+    "invite delete",
 }
 
 # Default permission profiles
@@ -39,7 +41,7 @@ DEFAULT_PROFILES = {
     },
     "readonly": {
         "description": "Read-only: list, info, get, search, listen",
-        "allowed": ["message list", "message get", "message search", "message history", "channel list", "channel info", "server list", "server info", "role list", "member list", "member info", "reaction list", "thread list", "listen", "config show", "voice status", "voice where", "voice members"],
+        "allowed": ["message list", "message get", "message search", "message history", "message pins", "channel list", "channel info", "server list", "server info", "server audit-log", "role list", "member list", "member info", "reaction list", "thread list", "invite list", "invite info", "emoji list", "listen", "config show", "voice status", "voice where", "voice members"],
         "denied": ["*"],
     },
     "moderation": {

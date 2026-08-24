@@ -3,8 +3,8 @@ import asyncio
 import click
 import discord
 
-from discli.client import run_gateway
-from discli.utils import output
+from discli.client import run_gateway, run_rest
+from discli.utils import output, resolve_guild, resolve_member
 
 
 def _resolve_cached_guild(client, identifier: str):
@@ -677,3 +677,56 @@ def voice_status(ctx):
         return _action(client)
 
     run_gateway(ctx, action, features={"voice"})
+
+
+@voice_group.command("move")
+@click.argument("server")
+@click.argument("member")
+@click.argument("channel")
+@click.option("--reason", default=None, help="Audit log reason.")
+@click.pass_context
+def voice_move(ctx, server, member, channel, reason):
+    """Move a member to another voice channel.
+
+    The member must already be connected to voice, and the bot needs the
+    Move Members permission. This is a plain HTTP action -- it does not open
+    a voice connection, so it needs no voice extras.
+    """
+    from discli.security import audit_log, rate_limiter
+
+    def action(client):
+        async def _action(client):
+            rate_limiter.wait()
+            guild = await resolve_guild(client, server)
+            m = await resolve_member(guild, member)
+
+            channels = await guild.fetch_channels()
+            normalized = channel.removeprefix("#").casefold()
+            matches = [
+                ch for ch in channels
+                if isinstance(ch, (discord.VoiceChannel, discord.StageChannel))
+                and (str(ch.id) == channel or ch.name.casefold() == normalized)
+            ]
+            if not matches:
+                raise click.ClickException(f"Voice channel not found in {guild.name}: {channel}")
+            if len(matches) > 1:
+                ids = ", ".join(str(ch.id) for ch in matches)
+                raise click.ClickException(
+                    f"Multiple voice channels match '{channel}' (IDs: {ids}). Use a channel ID."
+                )
+            target = matches[0]
+
+            name = str(m)
+            await m.move_to(target, reason=reason)
+            audit_log("voice move", {"server": server, "member": name, "channel": target.name})
+            data = {
+                "member": name,
+                "member_id": str(m.id),
+                "channel": target.name,
+                "channel_id": str(target.id),
+                "moved": True,
+            }
+            output(ctx, data, plain_text=f"Moved {name} to voice channel #{target.name}")
+        return _action(client)
+
+    run_rest(ctx, action)

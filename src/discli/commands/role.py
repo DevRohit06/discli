@@ -17,8 +17,8 @@ def role_group():
     is_flag=True,
     default=False,
     help=(
-        "Compute per-role member counts. Off by default because it iterates the "
-        "entire member list (slow on large servers, needs the Server Members intent)."
+        "Include per-role member counts. One extra request; needs Manage Roles "
+        "but no privileged intent."
     ),
 )
 @click.pass_context
@@ -32,11 +32,12 @@ def role_list(ctx, server, with_member_counts):
             member_counts = None
             if with_member_counts:
                 try:
-                    member_counts = {role.id: 0 for role in fetched_roles}
-                    async for member in guild.fetch_members(limit=None):
-                        for member_role in member.roles:
-                            if member_role.id in member_counts:
-                                member_counts[member_role.id] += 1
+                    # One REST call, no privileged intent -- unlike paging
+                    # fetch_members() and tallying client-side. On a REST-only
+                    # client nothing is cached, so discord.py hands back Object
+                    # keys rather than Role; key the mapping on .id either way.
+                    raw_counts = await guild.role_member_counts()
+                    member_counts = {role.id: count for role, count in raw_counts.items()}
                 except discord.Forbidden:
                     # Reset to None so counts are reported as unavailable rather
                     # than silently as 0 for every role.

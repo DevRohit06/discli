@@ -67,11 +67,6 @@ class _FakeRole:
         self.color = "#000000"
 
 
-class _FakeMember:
-    def __init__(self, role_ids):
-        self.roles = [type("R", (), {"id": rid})() for rid in role_ids]
-
-
 def _make_role_client(guild):
     class FakeClient:
         def __init__(self, *, intents):
@@ -98,8 +93,11 @@ def test_role_list_skips_member_counts_by_default(monkeypatch):
         async def fetch_roles(self):
             return [_FakeRole(1, "Admin"), _FakeRole(2, "Mod")]
 
+        async def role_member_counts(self):
+            raise AssertionError("role list must not request member counts by default")
+
         async def fetch_members(self, limit=None):
-            raise AssertionError("role list must not fetch members by default")
+            raise AssertionError("role list must never page the member list")
             yield  # pragma: no cover - makes this an async generator
 
     monkeypatch.setattr("discli.client.discord.Client", _make_role_client(FakeGuild()))
@@ -114,14 +112,20 @@ def test_role_list_skips_member_counts_by_default(monkeypatch):
     assert "Mod (ID: 2" in result.output
 
 
-def test_role_list_with_member_counts(monkeypatch):
+def test_role_list_with_member_counts_uses_count_endpoint(monkeypatch):
     class FakeGuild:
         async def fetch_roles(self):
             return [_FakeRole(1, "Admin"), _FakeRole(2, "Mod")]
 
+        async def role_member_counts(self):
+            # discord.py keys this mapping by Role when the role is cached and
+            # by Object when it is not; a REST-only client always gets the
+            # latter, so the command must key on .id rather than identity.
+            return {_FakeRole(1, "Admin"): 2, _FakeRole(2, "Mod"): 1}
+
         async def fetch_members(self, limit=None):
-            yield _FakeMember([1])
-            yield _FakeMember([1, 2])
+            raise AssertionError("member counts must not page the member list")
+            yield  # pragma: no cover - makes this an async generator
 
     monkeypatch.setattr("discli.client.discord.Client", _make_role_client(FakeGuild()))
 
@@ -139,9 +143,8 @@ def test_role_list_with_member_counts_forbidden_reports_unavailable(monkeypatch)
         async def fetch_roles(self):
             return [_FakeRole(1, "Admin"), _FakeRole(2, "Mod")]
 
-        async def fetch_members(self, limit=None):
+        async def role_member_counts(self):
             raise discord.Forbidden(_FakeRoleResponse(), "Missing Access")
-            yield  # pragma: no cover - makes this an async generator
 
     monkeypatch.setattr("discli.client.discord.Client", _make_role_client(FakeGuild()))
 

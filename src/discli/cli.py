@@ -4,6 +4,8 @@ from discli.config import load_config
 from discli.commands.channel import channel_group
 from discli.commands.config_cmd import config_group
 from discli.commands.dm import dm_group
+from discli.commands.emoji import emoji_group
+from discli.commands.invite import invite_group
 from discli.commands.listen import listen_cmd
 from discli.commands.member import member_group
 from discli.commands.message import message_group
@@ -44,6 +46,8 @@ def main(ctx, token, use_json, yes, profile):
 main.add_command(channel_group)
 main.add_command(config_group)
 main.add_command(dm_group)
+main.add_command(emoji_group)
+main.add_command(invite_group)
 main.add_command(listen_cmd)
 main.add_command(member_group)
 main.add_command(message_group)

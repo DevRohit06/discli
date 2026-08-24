@@ -49,10 +49,12 @@ Some Discord HTTP endpoints and response fields are still restricted by applicat
 
 - **Messages**: send, edit, delete, search, history, embeds, attachments, replies
 - **Channels & roles**: create, edit, delete, list, get info
-- **Members**: list, info, kick, ban, role assignment
+- **Members**: list, info, kick, ban, nickname, role assignment, move between voice channels
 - **Threads**: create, list, archive, message inside
 - **DMs**: send and read direct messages
 - **Reactions & polls**: manage emoji reactions, run polls with multiple choices
+- **Server admin**: edit name/icon/banner, read Discord's audit log, manage invites and custom emoji
+- **Webhooks**: create, list, and post through them under a custom name and avatar
 - **Live events**: `discli listen` streams every message, reaction, member event as JSONL
 - **AI agents**: `discli serve` keeps a persistent bot open over stdin/stdout JSONL; drive it from Claude, OpenAI, LangChain, bash
 - **Interactive components**: modals, multi-step workflows with state, persistent dashboards

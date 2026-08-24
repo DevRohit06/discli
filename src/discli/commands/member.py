@@ -192,3 +192,48 @@ def member_timeout(ctx, server, member, duration, reason, triggered_by):
         return _action(client)
 
     run_rest(ctx, action)
+
+
+@member_group.command("nick")
+@click.argument("server")
+@click.argument("member")
+@click.argument("nickname", required=False)
+@click.option("--clear", "clear_nick", is_flag=True, default=False, help="Remove the nickname instead of setting one.")
+@click.option("--reason", default=None, help="Audit log reason.")
+@click.option("--triggered-by", default=None, help="User ID who triggered this action.")
+@click.pass_context
+def member_nick(ctx, server, member, nickname, clear_nick, reason, triggered_by):
+    """Set or clear a member's server nickname."""
+    if clear_nick and nickname is not None:
+        raise click.ClickException("Pass either a nickname or --clear, not both.")
+    if not clear_nick and nickname is None:
+        raise click.ClickException("Provide a nickname, or use --clear to remove it.")
+    if nickname is not None and len(nickname) > 32:
+        raise click.ClickException("Nicknames cannot exceed 32 characters.")
+
+    def action(client):
+        async def _action(client):
+            rate_limiter.wait()
+            guild = await resolve_guild(client, server)
+            if triggered_by:
+                from discli.security import check_user_permission
+                await check_user_permission(guild, int(triggered_by), "manage_roles")
+            m = await resolve_member(guild, member)
+            name = str(m)
+            previous = m.nick
+            new_nick = None if clear_nick else nickname
+            await m.edit(nick=new_nick, reason=reason)
+            audit_log(
+                "member nick",
+                {"server": server, "member": name, "from": previous, "to": new_nick},
+                user=triggered_by or "",
+            )
+            data = {"member": name, "previous_nick": previous, "nick": new_nick}
+            if new_nick is None:
+                plain = f"Cleared nickname for {name}"
+            else:
+                plain = f"Set nickname for {name} to '{new_nick}'"
+            output(ctx, data, plain_text=plain)
+        return _action(client)
+
+    run_rest(ctx, action)
