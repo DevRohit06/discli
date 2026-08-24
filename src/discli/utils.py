@@ -11,6 +11,26 @@ def format_output(data: Any, use_json: bool = False) -> str:
     return str(data)
 
 
+# Discord announced on 2026-08-12 that from 2026-11-16 channels a bot lacks
+# VIEW_CHANNEL on are dropped from GET /guilds/{id}/channels and the Gateway
+# entirely. There is no API that reports how many were withheld, so the only
+# honest thing discli can do is say the listing is scoped.
+CHANNEL_VISIBILITY_NOTE = (
+    "channel listings only include channels this bot can view. From 2026-11-16 "
+    "Discord omits channels without the View Channel permission from the API, so "
+    "a short list may mean missing permissions rather than an empty server."
+)
+
+
+def warn_channel_visibility() -> None:
+    """Disclose that a channel listing is scoped to the bot's visibility.
+
+    Written to stderr so ``--json`` stdout stays a clean, unchanged payload --
+    callers piping stdout into a JSON parser are unaffected.
+    """
+    click.echo(f"note: {CHANNEL_VISIBILITY_NOTE}", err=True)
+
+
 def output(ctx: click.Context, data: Any, plain_text: str | None = None) -> None:
     """Print output respecting --json flag."""
     use_json = ctx.obj.get("use_json", False)

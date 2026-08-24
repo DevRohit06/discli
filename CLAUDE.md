@@ -50,6 +50,8 @@ Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_
 - `audioop-lts` is a conditional dep for Python ≥3.13 (stdlib `audioop` removal).
 - Intents are only sent on the Gateway path (`listen`, `serve`, `voice`). One-shot commands use `run_rest()` and transmit no intents. Missing privileged intents fail the whole Gateway connection (`PrivilegedIntentsRequired`) but only fail individual REST calls with a 403.
 - `run_rest_action()` sets `Intents.members = True` on the login-only client. That flag never reaches Discord — it exists to defeat discord.py's *client-side* guard in `Guild.fetch_members()`, which raises `ClientException` (a sibling of `HTTPException`, so no handler catches it) before any request goes out. Do not "clean this up" to `Intents.none()`.
+- Channel listings are scoped to what the bot can view, and from **2026-11-16** Discord drops channels without `VIEW_CHANNEL` from `GET /guilds/{id}/channels` and the Gateway entirely. No API reports how many were withheld. `channel list` and `server info` disclose this via `warn_channel_visibility()` on **stderr** — deliberately not stdout, so `--json` payloads stay parseable. `serve`'s `channel_list` sets `visible_only: true` in-band instead, because JSONL has no stderr equivalent.
+- Discord split `PIN_MESSAGES`, `BYPASS_SLOWMODE`, `CREATE_GUILD_EXPRESSIONS`, and `CREATE_EVENTS` out of broader permissions during 2026. A bot invited before the split keeps the old bit and silently loses the new capability. `discli doctor --server <name>` detects exactly that case (holds legacy bit, lacks split bit); see `PERMISSION_SPLITS` in `commands/doctor.py`.
 
 ## Architecture
 
@@ -59,14 +61,14 @@ Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_
 
 **Key modules:**
 - `client.py` — Token resolution, REST/Gateway lifecycle separation, and minimal Gateway intent construction
-- `security.py` — Permission profiles (full/chat/readonly/moderation/voice/interact), audit logging to `~/.discli/audit.log` (JSONL), token-bucket rate limiter
+- `security.py` — Permission profiles (full/chat/readonly/moderation), audit logging to `~/.discli/audit.log` (JSONL), token-bucket rate limiter
 - `utils.py` — Output formatting plus async, cache-first resource resolvers with REST fallbacks
 - `config.py` — Token storage at `~/.discli/config.json`
 - `voice_engine.py` — VoiceEngine with AudioPlayer, AudioListener, VAD-based speech segmentation, audio codec handling
 - `interact_engine.py` — InteractEngine for modals, workflows, and dashboards with interaction routing and state management
 - `tts.py` — TTS provider protocol with ElevenLabs and OpenAI implementations
 - `stt.py` — STT provider protocol with Deepgram and OpenAI Whisper implementations
-- `commands/doctor.py` — `discli doctor`, the first-stop diagnostic: checks token, ffmpeg on PATH, DAVE/Opus voice patches, provider API keys
+- `commands/doctor.py` — `discli doctor`, the first-stop diagnostic: checks token, ffmpeg on PATH, DAVE/Opus voice patches, provider API keys. All local unless `--server` is passed, which adds the network permission-bitfield check
 
 The `permission` and `audit` command groups are defined inline in `cli.py`, not in `commands/`.
 

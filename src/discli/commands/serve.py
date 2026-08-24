@@ -1206,7 +1206,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
                         "server": guild.name,
                         "server_id": str(guild.id),
                     })
-        return {"ok": True, "channels": channels}
+        # Only channels this bot can view are ever returned; from 2026-11-16
+        # Discord withholds the rest at the API level. Flagged in-band because
+        # the JSONL protocol has no stderr equivalent for an out-of-band note.
+        return {"ok": True, "channels": channels, "visible_only": True}
 
     async def _action_channel_create(cmd: dict) -> dict:
         guild_id = cmd.get("guild_id")

@@ -1,7 +1,7 @@
 import click
 
 from discli.client import run_rest
-from discli.utils import fetch_guilds, output, resolve_guild
+from discli.utils import fetch_guilds, output, resolve_guild, warn_channel_visibility
 
 
 @click.group("server")
@@ -64,6 +64,8 @@ def server_info(ctx, server):
             }
             plain_lines = [f"{k}: {v}" for k, v in data.items()]
             output(ctx, data, plain_text="\n".join(plain_lines))
+            # channel_count only counts what this bot can see.
+            warn_channel_visibility()
         return _action(client)
 
     run_rest(ctx, action)

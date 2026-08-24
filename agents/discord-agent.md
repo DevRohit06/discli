@@ -54,6 +54,22 @@ discli channel forum-post <channel> "Post Title" "Post content"
 discli channel set-permissions <channel> <role-or-member> --allow send_messages,read_messages --deny manage_messages --target-type role
 ```
 
+**Channel listings are permission-scoped.** `channel list` and `server info` only report
+channels the bot can view, and from 2026-11-16 Discord omits the rest from the API
+entirely. Both write a one-line note to **stderr**; `--json` stdout is unaffected, so
+parsing stays safe. Over `serve`, the `channel_list` response carries `visible_only: true`
+instead. A short list may mean missing permissions, not an empty server.
+
+### Diagnostics
+```bash
+discli doctor                              # local checks only, no network
+discli doctor --server "server name"       # also verifies the bot's real permissions
+```
+`--server` is the one networked check. It flags permissions Discord split out of
+broader ones during 2026 (`PIN_MESSAGES`, `BYPASS_SLOWMODE`, `CREATE_GUILD_EXPRESSIONS`,
+`CREATE_EVENTS`) — a bot invited before the split keeps the old bit and silently loses
+the new capability. Run it first when a command fails with a 403.
+
 ### Threads
 ```bash
 discli thread create <channel> <message_id> "thread name"

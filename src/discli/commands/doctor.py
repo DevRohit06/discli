@@ -260,7 +260,136 @@ def _tts_section() -> Section:
     )
 
 
-def _gather() -> list[Section]:
+# Permissions Discord carved out of broader ones. A bot invited before the
+# split carries the old bit but not the new one, so it silently loses a
+# capability it used to have -- an invite-link problem no local check can see.
+# (new bit, bit that used to grant it, enforced from, what breaks without it)
+PERMISSION_SPLITS = [
+    ("pin_messages", "manage_messages", "2026-01", "message pin, message unpin"),
+    ("bypass_slowmode", "manage_messages", "2026-02-23", "posting while slowmode is active"),
+    ("create_expressions", "manage_expressions", "2026-02-23", "emoji upload"),
+    ("create_events", "manage_events", "2026-02-23", "event create"),
+]
+
+# Guild permissions discli commands actually depend on, mapped to the commands
+# that need them. Used for the informational grant summary.
+DISCLI_PERMISSIONS = {
+    "view_channel": "channel list, message list",
+    "read_message_history": "message history, message search",
+    "send_messages": "message send, message reply",
+    "embed_links": "message send --embed-*",
+    "attach_files": "message send --file",
+    "add_reactions": "reaction add",
+    "send_polls": "poll create",
+    "create_public_threads": "thread create",
+    "manage_messages": "message delete, message bulk-delete",
+    "pin_messages": "message pin, message unpin",
+    "manage_channels": "channel create/delete/edit, invite delete",
+    "create_instant_invite": "invite create",
+    "manage_roles": "role *, channel set-permissions",
+    "manage_nicknames": "member nick",
+    "kick_members": "member kick",
+    "ban_members": "member ban, member unban",
+    "moderate_members": "member timeout",
+    "move_members": "voice move",
+    "manage_webhooks": "webhook *",
+    "manage_guild": "server edit, invite list",
+    "view_audit_log": "server audit-log",
+    "create_expressions": "emoji upload",
+    "manage_expressions": "emoji rename, emoji delete",
+    "create_events": "event create",
+    "manage_events": "event delete",
+    "connect": "voice join",
+    "speak": "voice speak, voice play",
+}
+
+
+def _permission_checks(server: str) -> list[Check]:
+    """Check the bot's real permission bitfield in one guild.
+
+    This is the only check that touches the network, which is why it runs
+    only when --server is passed: `discli doctor` stays an offline diagnostic
+    by default.
+    """
+    import asyncio
+
+    from discli.client import run_rest_action
+    from discli.utils import resolve_guild
+
+    token = os.environ.get("DISCORD_BOT_TOKEN") or load_config().get("token")
+    if not token:
+        return [
+            Check(
+                "guild permissions",
+                False,
+                "no token configured",
+                hint="run `discli config set token <TOKEN>` or set DISCORD_BOT_TOKEN",
+            )
+        ]
+
+    async def action(client):
+        guild = await resolve_guild(client, server)
+        me = await guild.fetch_member(client.user.id)
+        return guild.name, guild.id, me.guild_permissions
+
+    try:
+        guild_name, guild_id, perms = asyncio.run(run_rest_action(token, action))
+    except Exception as exc:
+        return [
+            Check(
+                "guild permissions",
+                False,
+                f"lookup failed: {exc}",
+                hint=f"check the token, and that the bot is in a server matching '{server}'",
+            )
+        ]
+
+    checks = [Check("guild", True, f"{guild_name} (ID: {guild_id})")]
+
+    if perms.administrator:
+        checks.append(
+            Check("administrator", True, "granted — every permission is implied")
+        )
+        return checks
+
+    regressions = [
+        (new_bit, legacy, since, affected)
+        for new_bit, legacy, since, affected in PERMISSION_SPLITS
+        if getattr(perms, legacy, False) and not getattr(perms, new_bit, False)
+    ]
+    if regressions:
+        detail = "; ".join(
+            f"{new} (covered by {legacy} until {since})"
+            for new, legacy, since, _ in regressions
+        )
+        affected = "; ".join(a for *_, a in regressions)
+        checks.append(
+            Check(
+                "permission splits",
+                False,
+                detail,
+                hint=(
+                    "This bot holds the old permission but not the split-out one, so it "
+                    f"can no longer: {affected}. Re-invite it with an updated permission "
+                    "bitfield, or grant these in Server Settings > Roles."
+                ),
+            )
+        )
+    else:
+        checks.append(Check("permission splits", True, "no regressions"))
+
+    missing = [p for p in DISCLI_PERMISSIONS if not getattr(perms, p, False)]
+    granted_count = len(DISCLI_PERMISSIONS) - len(missing)
+    detail = f"{granted_count}/{len(DISCLI_PERMISSIONS)} granted"
+    if missing:
+        detail += " — not granted: " + ", ".join(missing)
+    # Always ok: an absent permission is only a problem if you wanted the
+    # command that needs it, which doctor cannot know.
+    checks.append(Check("discli permissions", True, detail))
+    return checks
+
+
+def _gather(server: str | None = None) -> list[Section]:
     sections: list[Section] = [
         Section(
             "CORE",
@@ -273,6 +402,24 @@ def _gather() -> list[Section]:
     if _voice_extras_installed():
         sections.extend([_stt_section(), _tts_section()])
         sections.append(Section("TOOLS", [_check_ffmpeg()]))
+
+    if server:
+        sections.append(Section("PERMISSIONS", _permission_checks(server)))
+    else:
+        sections.append(
+            Section(
+                "PERMISSIONS",
+                [
+                    Check(
+                        "guild permissions",
+                        False,
+                        "not checked",
+                        hint="pass --server <name-or-id> to verify the bot's permission bitfield",
+                        skipped=True,
+                    )
+                ],
+            )
+        )
     return sections
 
 
@@ -301,8 +448,13 @@ def _format_text(sections: list[Section]) -> tuple[str, int, int]:
 
 
 @click.command("doctor")
+@click.option(
+    "--server",
+    default=None,
+    help="Also check the bot's permission bitfield in this server (name or ID). Requires network.",
+)
 @click.pass_context
-def doctor_cmd(ctx):
+def doctor_cmd(ctx, server):
     """Diagnose the local install: token, voice deps, STT/TTS keys, ffmpeg.
 
     Optional dependencies (voice extras, STT/TTS keys, ffmpeg) are reported
@@ -311,9 +463,15 @@ def doctor_cmd(ctx):
     deps, wrong voice_recv version, libopus failing to load) counts as a
     failure.
 
+    Every check is local unless `--server` is given, which adds a PERMISSIONS
+    section that logs in and reads the bot's real permissions in that guild.
+    That section flags permissions Discord split out of broader ones during
+    2026 — a bot invited before the split keeps the old bit and silently
+    loses the new capability, which nothing else here can detect.
+
     Exits 0 when no failures; 1 otherwise. Use `--json` for scripting.
     """
-    sections = _gather()
+    sections = _gather(server)
     use_json = ctx.obj.get("use_json", False) if ctx.obj else False
 
     if use_json:

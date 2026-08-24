@@ -59,7 +59,7 @@ Some Discord HTTP endpoints and response fields are still restricted by applicat
 - **AI agents**: `discli serve` keeps a persistent bot open over stdin/stdout JSONL; drive it from Claude, OpenAI, LangChain, bash
 - **Interactive components**: modals, multi-step workflows with state, persistent dashboards
 - **Voice** *(optional extra)*: join voice channels, transcribe speech, TTS, audio playback, live meeting summaries
-- **Doctor**: `discli doctor` verifies your setup in one command
+- **Doctor**: `discli doctor` verifies your setup in one command; `--server NAME` also checks the bot's real Discord permissions
 
 ## Install
 

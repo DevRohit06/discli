@@ -9,6 +9,7 @@ from discli.utils import (
     resolve_guild,
     resolve_member,
     resolve_role,
+    warn_channel_visibility,
 )
 
 
@@ -41,6 +42,7 @@ def channel_list(ctx, server):
                         })
             plain_lines = [f"#{c['name']} ({c['type']}) — {c['server']} (ID: {c['id']})" for c in channels]
             output(ctx, channels, plain_text="\n".join(plain_lines) if plain_lines else "No channels found.")
+            warn_channel_visibility()
         return _action(client)
 
     run_rest(ctx, action)

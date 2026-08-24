@@ -323,10 +323,30 @@ Notes from the build:
   `CREATE_GUILD_EXPRESSIONS`. `emoji upload` and `message pin` will fail at the API with a
   403 rather than being caught by `doctor`. That is Wave 2.
 
-**Wave 2 — before 2026-11-16**
+**Wave 2 — SHIPPED 2026-08-25** (ahead of the 2026-11-16 deadline)
 Channel visibility disclosure in `channel list` / `server info` / `serve`. Permission
 bitfield check in `doctor` covering `PIN_MESSAGES`, `BYPASS_SLOWMODE`,
 `CREATE_GUILD_EXPRESSIONS`, `CREATE_EVENTS`.
+
+Notes from the build:
+
+- **The disclosure goes to stderr, not stdout.** `channel list --json` returns a bare JSON
+  array, so there is no place to add a top-level `visible_only` key without breaking every
+  existing consumer. stderr carries the note to humans and to anything that captures it,
+  while `--json` stdout stays byte-identical to before. A test pins that contract.
+- `serve`'s `channel_list` sets `visible_only: true` **in-band** instead — the JSONL
+  protocol has no stderr equivalent, and its response is already an object, so adding a
+  key is safe there.
+- **The permission check only fires on a real regression:** the bot holds the legacy bit
+  (`manage_messages`) but not the split-out one (`pin_messages`). A bot that never had
+  `manage_messages` is not flagged, because it never lost anything. This keeps the check
+  silent for read-only bots instead of drowning them in warnings.
+- Missing permissions that are *not* regressions are reported but never fail the run —
+  doctor cannot know which commands you intended to use.
+- `doctor` stays fully offline unless `--server` is passed. That is the only networked
+  check in the command, and the default run prints a `[--]` line pointing at it.
+- Not covered: `serve` has no test harness in this repo, so its one-line `visible_only`
+  addition is verified by reading, not by a test.
 
 **Wave 3 — new capability**
 Native guild message search (raw route, 202 handling, `--local` fallback) · `ext.tasks`
