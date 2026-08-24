@@ -1,7 +1,7 @@
 import click
 import discord
 
-from discli.client import run_discord
+from discli.client import run_rest
 from discli.utils import output, resolve_channel
 
 
@@ -17,13 +17,13 @@ def webhook_list(ctx, channel):
     """List webhooks in a channel."""
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             webhooks = await ch.webhooks()
             data = [{"id": str(w.id), "name": w.name, "url": w.url} for w in webhooks]
             plain_lines = [f"{w['name']} (ID: {w['id']})" for w in data]
             output(ctx, data, plain_text="\n".join(plain_lines) if plain_lines else "No webhooks.")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @webhook_group.command("create")
@@ -34,12 +34,12 @@ def webhook_create(ctx, channel, name):
     """Create a webhook in a channel."""
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             webhook = await ch.create_webhook(name=name)
             data = {"id": str(webhook.id), "name": webhook.name, "url": webhook.url}
             output(ctx, data, plain_text=f"Created webhook '{webhook.name}' (URL: {webhook.url})")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @webhook_group.command("delete")
@@ -53,7 +53,7 @@ def webhook_delete(ctx, channel, webhook_id):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             webhooks = await ch.webhooks()
             target = None
             for w in webhooks:
@@ -67,4 +67,4 @@ def webhook_delete(ctx, channel, webhook_id):
             audit_log("webhook delete", {"channel": channel, "webhook_id": webhook_id})
             output(ctx, {"id": webhook_id, "deleted": True}, plain_text=f"Deleted webhook '{name}'")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)

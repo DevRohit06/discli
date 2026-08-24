@@ -25,7 +25,7 @@ flowchart LR
 2. Click parses arguments and global options (`--token`, `--json`, `--yes`, `--profile`).
 3. The active permission profile is checked to confirm the command is allowed.
 4. The bot token is resolved from flag, environment variable, or config file.
-5. A temporary `discord.Client` connects, executes the action on `on_ready`, and disconnects.
+5. One-shot commands authenticate an HTTP client and execute directly. Live commands connect a Gateway client with feature-specific intents.
 6. The Discord API processes the request.
 
 ## Module dependency graph
@@ -57,18 +57,18 @@ flowchart TD
 | Module | File | Purpose |
 |---|---|---|
 | **CLI entry point** | `cli.py` | Click root group. Registers all command groups, defines global options, hosts `permission` and `audit` subcommands. |
-| **Commands** | `commands/*.py` | Each file defines a Click command group (e.g., `message`, `channel`, `role`). Commands build an async action function and hand it to `run_discord()`. |
-| **Client** | `client.py` | `resolve_token()` resolves the bot token. `run_discord()` checks permissions, creates a temporary `discord.Client`, runs the action on `on_ready`, and tears down the connection. |
+| **Commands** | `commands/*.py` | Each file defines a Click command group. One-shot actions use `run_rest()`; live state and voice actions use the Gateway path. |
+| **Client** | `client.py` | Resolves tokens, separates REST and Gateway lifecycles, enforces permissions, and builds the minimum intents for Gateway features. |
 | **Security** | `security.py` | Permission profiles (allow/deny lists), `is_command_allowed()` enforcement, `audit_log()` JSONL writer, `RateLimiter` (token bucket), `check_user_permission()` for Discord-level permission checks, destructive action confirmation. |
 | **Config** | `config.py` | Reads/writes `~/.discli/config.json`. Handles token persistence and config merging. |
-| **Utils** | `utils.py` | `output()` respects the `--json` flag. `resolve_channel()` and `resolve_guild()` translate names/IDs to discord.py objects. |
+| **Utils** | `utils.py` | `output()` respects the `--json` flag. Async resource resolvers translate names/IDs with cache-first lookups and REST fallbacks. |
 | **Serve** | `commands/serve.py` | Persistent bot mode. Reads JSONL from stdin, writes JSONL to stdout. ~1100 lines covering 25+ actions, event forwarding, slash command registration, and streaming with 1.5s flush intervals. |
 
 ## Two operating modes
 
 ### Mode 1: Fire-and-forget CLI commands
 
-This is the default mode. Each command creates a short-lived `discord.Client`, performs one operation, and exits.
+This is the default mode. Each command creates a short-lived HTTP-authenticated `discord.Client`, performs one operation, and exits without opening a Gateway session.
 
 ```mermaid
 sequenceDiagram
@@ -79,16 +79,14 @@ sequenceDiagram
 
     User->>CLI: discli message send "#general" "Hello"
     CLI->>CLI: Parse args, check permissions, resolve token
-    CLI->>Client: Create client, connect
-    Client->>API: Gateway connect
-    API-->>Client: on_ready
-    Client->>API: Send message
+    CLI->>Client: Create client and authenticate token
+    Client->>API: HTTP request to send message
     API-->>Client: 200 OK
     Client->>Client: Close connection
     CLI-->>User: "Message sent to #general"
 ```
 
-This approach is simple and stateless. The connection lives only as long as the single API call takes. The trade-off is connection overhead on every invocation (typically 1-2 seconds for the gateway handshake).
+This approach is simple and stateless. It is subject to Discord HTTP rate limits, but it does not send Gateway `IDENTIFY`, consume session-start quota, or require unrelated Gateway intents.
 
 **Best for:** scripting, cron jobs, one-off operations, piping into other tools.
 

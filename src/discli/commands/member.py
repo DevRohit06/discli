@@ -1,23 +1,8 @@
 import click
 
-from discli.client import run_discord
+from discli.client import run_rest
 from discli.security import audit_log, confirm_destructive, rate_limiter
-from discli.utils import output, resolve_guild
-
-
-def resolve_member(guild, identifier: str):
-    """Resolve a member by ID or name."""
-    try:
-        member_id = int(identifier)
-        member = guild.get_member(member_id)
-        if member:
-            return member
-    except ValueError:
-        pass
-    for member in guild.members:
-        if member.name.lower() == identifier.lower() or str(member).lower() == identifier.lower():
-            return member
-    raise click.ClickException(f"Member not found: {identifier}")
+from discli.utils import output, resolve_guild, resolve_member
 
 
 @click.group("member")
@@ -34,9 +19,10 @@ def member_list(ctx, server, limit):
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
+            guild = await resolve_guild(client, server)
             members = []
-            for m in guild.members[:limit]:
+            fetched_members = [m async for m in guild.fetch_members(limit=limit)]
+            for m in fetched_members:
                 members.append({
                     "id": str(m.id),
                     "name": str(m),
@@ -54,7 +40,7 @@ def member_list(ctx, server, limit):
             output(ctx, members, plain_text="\n".join(plain_lines) if plain_lines else "No members found.")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @member_group.command("info")
@@ -66,8 +52,8 @@ def member_info(ctx, server, member):
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
-            m = resolve_member(guild, member)
+            guild = await resolve_guild(client, server)
+            m = await resolve_member(guild, member)
             data = {
                 "id": str(m.id),
                 "name": str(m),
@@ -80,7 +66,7 @@ def member_info(ctx, server, member):
             output(ctx, data, plain_text="\n".join(plain_lines))
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @member_group.command("kick")
@@ -96,18 +82,18 @@ def member_kick(ctx, server, member, reason, triggered_by):
     def action(client):
         async def _action(client):
             rate_limiter.wait()
-            guild = resolve_guild(client, server)
+            guild = await resolve_guild(client, server)
             if triggered_by:
                 from discli.security import check_user_permission
                 await check_user_permission(guild, int(triggered_by), "kick")
-            m = resolve_member(guild, member)
+            m = await resolve_member(guild, member)
             name = str(m)
             await m.kick(reason=reason)
             audit_log("member kick", {"server": server, "member": name, "reason": reason}, user=triggered_by or "")
             output(ctx, {"member": name, "kicked": True}, plain_text=f"Kicked {name}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @member_group.command("ban")
@@ -123,18 +109,18 @@ def member_ban(ctx, server, member, reason, triggered_by):
     def action(client):
         async def _action(client):
             rate_limiter.wait()
-            guild = resolve_guild(client, server)
+            guild = await resolve_guild(client, server)
             if triggered_by:
                 from discli.security import check_user_permission
                 await check_user_permission(guild, int(triggered_by), "ban")
-            m = resolve_member(guild, member)
+            m = await resolve_member(guild, member)
             name = str(m)
             await m.ban(reason=reason)
             audit_log("member ban", {"server": server, "member": name, "reason": reason}, user=triggered_by or "")
             output(ctx, {"member": name, "banned": True}, plain_text=f"Banned {name}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @member_group.command("unban")
@@ -149,7 +135,7 @@ def member_unban(ctx, server, member, triggered_by):
     def action(client):
         async def _action(client):
             rate_limiter.wait()
-            guild = resolve_guild(client, server)
+            guild = await resolve_guild(client, server)
             if triggered_by:
                 from discli.security import check_user_permission
                 await check_user_permission(guild, int(triggered_by), "ban")
@@ -167,7 +153,7 @@ def member_unban(ctx, server, member, triggered_by):
             output(ctx, {"member": str(target), "unbanned": True}, plain_text=f"Unbanned {target}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @member_group.command("timeout")
@@ -185,11 +171,11 @@ def member_timeout(ctx, server, member, duration, reason, triggered_by):
         async def _action(client):
             from datetime import timedelta
             rate_limiter.wait()
-            guild = resolve_guild(client, server)
+            guild = await resolve_guild(client, server)
             if triggered_by:
                 from discli.security import check_user_permission
                 await check_user_permission(guild, int(triggered_by), "moderate_members")
-            m = resolve_member(guild, member)
+            m = await resolve_member(guild, member)
             if duration < 0:
                 raise click.ClickException("Duration must be >= 0")
             if duration > 2419200:
@@ -205,4 +191,4 @@ def member_timeout(ctx, server, member, duration, reason, triggered_by):
                 output(ctx, {"member": name, "timeout_seconds": duration}, plain_text=f"Timed out {name} for {duration}s")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)

@@ -1,7 +1,7 @@
 import click
 import discord
 
-from discli.client import run_discord
+from discli.client import run_rest
 from discli.utils import output, resolve_channel
 
 
@@ -28,7 +28,7 @@ def message_send(ctx, channel, text, embed_title, embed_desc, embed_color, embed
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             embed = None
             if any([embed_title, embed_desc, embed_color, embed_footer, embed_image, embed_thumbnail, embed_author, embed_field]):
                 embed_kwargs = {}
@@ -67,7 +67,7 @@ def message_send(ctx, channel, text, embed_title, embed_desc, embed_color, embed
             output(ctx, data, plain_text=f"Sent message {msg.id} to #{ch.name}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @message_group.command("list")
@@ -82,7 +82,7 @@ def message_list(ctx, channel, limit, before, after):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             kwargs = {"limit": limit}
             if before:
                 kwargs["before"] = datetime.fromisoformat(before)
@@ -130,7 +130,7 @@ def message_list(ctx, channel, limit, before, after):
             output(ctx, messages, plain_text="\n".join(plain_lines))
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @message_group.command("history")
@@ -145,7 +145,7 @@ def message_history(ctx, channel, days, hours, limit):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             kwargs = {}
             if days:
                 kwargs["after"] = datetime.now(timezone.utc) - timedelta(days=days)
@@ -202,7 +202,7 @@ def message_history(ctx, channel, days, hours, limit):
             output(ctx, messages, plain_text="\n".join(plain_lines))
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @message_group.command("edit")
@@ -215,13 +215,13 @@ def message_edit(ctx, channel, message_id, new_text):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             msg = await ch.fetch_message(int(message_id))
             await msg.edit(content=new_text)
             output(ctx, {"id": str(msg.id), "content": new_text}, plain_text=f"Edited message {msg.id}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @message_group.command("delete")
@@ -235,14 +235,14 @@ def message_delete(ctx, channel, message_id):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             msg = await ch.fetch_message(int(message_id))
             await msg.delete()
             audit_log("message delete", {"channel": channel, "message_id": message_id})
             output(ctx, {"id": str(msg.id), "deleted": True}, plain_text=f"Deleted message {msg.id}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @message_group.command("get")
@@ -254,7 +254,7 @@ def message_get(ctx, channel, message_id):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             msg = await ch.fetch_message(int(message_id))
             data = {
                 "id": str(msg.id),
@@ -279,7 +279,7 @@ def message_get(ctx, channel, message_id):
             output(ctx, data, plain_text="\n".join(plain_lines))
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @message_group.command("reply")
@@ -293,7 +293,7 @@ def message_reply(ctx, channel, message_id, text, files):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             original = await ch.fetch_message(int(message_id))
             attachments = [discord.File(f) for f in files]
             kwargs = {"content": text}
@@ -306,7 +306,7 @@ def message_reply(ctx, channel, message_id, text, files):
             output(ctx, data, plain_text=f"Replied to {message_id} in #{ch.name}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @message_group.command("search")
@@ -324,7 +324,7 @@ def message_search(ctx, channel, query, limit, scan, author, before, after):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             kwargs = {"limit": scan}
             if before:
                 kwargs["before"] = datetime.fromisoformat(before)
@@ -396,7 +396,7 @@ def message_search(ctx, channel, query, limit, scan, author, before, after):
                 output(ctx, results, plain_text=f"Found {len(results)} match(es):\n" + "\n".join(plain_lines))
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @message_group.command("bulk-delete")
@@ -410,7 +410,7 @@ def message_bulk_delete(ctx, channel, message_ids):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             messages = []
             for mid in message_ids:
                 msg = await ch.fetch_message(int(mid))
@@ -420,4 +420,4 @@ def message_bulk_delete(ctx, channel, message_ids):
             output(ctx, {"deleted": len(messages)}, plain_text=f"Deleted {len(messages)} messages")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)

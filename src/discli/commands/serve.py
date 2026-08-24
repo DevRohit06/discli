@@ -41,7 +41,11 @@ CODE_BLOCK_FILE_THRESHOLD = 800
 def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
               status, activity, activity_text):
     """Start a persistent bot process with bidirectional JSONL communication."""
-    from discli.client import resolve_token
+    from discli.client import (
+        build_gateway_intents,
+        gateway_features_for_events,
+        resolve_token,
+    )
     from discli.security import is_command_allowed
 
     profile = ctx.obj.get("profile")
@@ -68,7 +72,9 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         print(f"[voice] opus load failed: {exc!r} — voice receive will not work",
               flush=True)
 
-    intents = discord.Intents.all()
+    gateway_features = gateway_features_for_events(event_filter)
+    gateway_features.add("voice")  # Serve accepts voice actions dynamically.
+    intents = build_gateway_intents(gateway_features)
     client = discord.Client(intents=intents)
     tree = app_commands.CommandTree(client) if app_commands is not None else None
 
@@ -127,8 +133,30 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
                 return False
         return True
 
-    def resolve_channel_by_id(channel_id: str):
-        return client.get_channel(int(channel_id))
+    async def resolve_channel_by_id(channel_id: str):
+        channel = client.get_channel(int(channel_id))
+        if channel is None:
+            channel = await client.fetch_channel(int(channel_id))
+        return channel
+
+    async def resolve_guild_by_id(guild_id: str):
+        guild = client.get_guild(int(guild_id))
+        if guild is None:
+            guild = await client.fetch_guild(int(guild_id))
+        return guild
+
+    async def resolve_member_by_id(guild, member_id: str):
+        member = guild.get_member(int(member_id))
+        if member is None:
+            member = await guild.fetch_member(int(member_id))
+        return member
+
+    async def resolve_role_by_id(guild, role_id: str):
+        role = guild.get_role(int(role_id))
+        if role is not None:
+            return role
+        roles = await guild.fetch_roles()
+        return next((item for item in roles if item.id == int(role_id)), None)
 
     def _build_embed(embed_data: dict) -> discord.Embed:
         """Build a discord.Embed from a JSON-friendly dict."""
@@ -610,7 +638,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── Typing Management ──────────────────────────────────────────
 
     async def _typing_loop(channel_id: str):
-        ch = resolve_channel_by_id(channel_id)
+        ch = await resolve_channel_by_id(channel_id)
         if not ch:
             return
         try:
@@ -668,7 +696,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         interaction_token = cmd.get("interaction_token")
         stream_id = str(uuid.uuid4())[:8]
 
-        ch = resolve_channel_by_id(channel_id)
+        ch = await resolve_channel_by_id(channel_id)
 
         msg = None
         if interaction_token and interaction_token in interactions:
@@ -746,7 +774,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
                 await msg.edit(content=content[:DISCORD_MSG_LIMIT])
             except discord.HTTPException:
                 pass
-            ch = resolve_channel_by_id(stream["channel_id"])
+            ch = await resolve_channel_by_id(stream["channel_id"])
             if ch:
                 remaining = content[DISCORD_MSG_LIMIT:]
                 while remaining:
@@ -832,7 +860,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── Action Handlers ────────────────────────────────────────────
 
     async def _action_send(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd["channel_id"])
+        ch = await resolve_channel_by_id(cmd["channel_id"])
         if not ch:
             return {"error": f"Channel not found: {cmd['channel_id']}"}
         content = cmd.get("content", "")
@@ -850,7 +878,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True, "message_id": str(msg.id), "jump_url": msg.jump_url}
 
     async def _action_reply(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd["channel_id"])
+        ch = await resolve_channel_by_id(cmd["channel_id"])
         if not ch:
             return {"error": f"Channel not found: {cmd['channel_id']}"}
         original = await ch.fetch_message(int(cmd["message_id"]))
@@ -869,7 +897,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True, "message_id": str(msg.id), "jump_url": msg.jump_url}
 
     async def _action_edit(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd["channel_id"])
+        ch = await resolve_channel_by_id(cmd["channel_id"])
         if not ch:
             return {"error": f"Channel not found: {cmd['channel_id']}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -877,7 +905,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True}
 
     async def _action_delete(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd["channel_id"])
+        ch = await resolve_channel_by_id(cmd["channel_id"])
         if not ch:
             return {"error": f"Channel not found: {cmd['channel_id']}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -885,7 +913,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True}
 
     async def _action_reaction_add(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd["channel_id"])
+        ch = await resolve_channel_by_id(cmd["channel_id"])
         if not ch:
             return {"error": f"Channel not found: {cmd['channel_id']}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -893,7 +921,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True}
 
     async def _action_reaction_remove(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd["channel_id"])
+        ch = await resolve_channel_by_id(cmd["channel_id"])
         if not ch:
             return {"error": f"Channel not found: {cmd['channel_id']}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -992,7 +1020,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         auto_archive = cmd.get("auto_archive_duration", 1440)
         content = cmd.get("content")
 
-        ch = resolve_channel_by_id(channel_id)
+        ch = await resolve_channel_by_id(channel_id)
         if not ch:
             return {"error": f"Channel not found: {channel_id}"}
 
@@ -1021,7 +1049,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         if not thread_id:
             return {"error": "Missing 'thread_id'"}
         content = cmd.get("content", "")
-        thread = client.get_channel(int(thread_id))
+        thread = await resolve_channel_by_id(thread_id)
         if not thread:
             return {"error": f"Thread not found: {thread_id}"}
         files = []
@@ -1048,7 +1076,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         if len(answers) < 2:
             return {"error": "Poll needs at least 2 answers"}
 
-        ch = resolve_channel_by_id(channel_id)
+        ch = await resolve_channel_by_id(channel_id)
         if not ch:
             return {"error": f"Channel not found: {channel_id}"}
 
@@ -1072,7 +1100,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── Message Queries ────────────────────────────────────────────
 
     async def _action_message_list(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         limit = cmd.get("limit", 20)
@@ -1092,7 +1120,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True, "messages": messages}
 
     async def _action_message_get(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -1118,7 +1146,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         }
 
     async def _action_message_search(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         query = cmd.get("query", "").lower()
@@ -1139,7 +1167,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True, "messages": results}
 
     async def _action_message_pin(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -1147,7 +1175,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True}
 
     async def _action_message_unpin(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -1159,7 +1187,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     async def _action_channel_list(cmd: dict) -> dict:
         guild_id = cmd.get("guild_id")
         guilds = (
-            [client.get_guild(int(guild_id))] if guild_id else client.guilds
+            [await resolve_guild_by_id(guild_id)] if guild_id else client.guilds
         )
         channels = []
         for guild in guilds:
@@ -1184,7 +1212,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         guild_id = cmd.get("guild_id")
         if not guild_id:
             return {"error": "Missing 'guild_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
         name = cmd.get("name")
@@ -1200,7 +1228,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True, "channel_id": str(ch.id), "name": ch.name}
 
     async def _action_channel_info(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         return {
@@ -1228,7 +1256,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         guild_id = cmd.get("guild_id")
         if not guild_id:
             return {"error": "Missing 'guild_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
         return {
@@ -1269,12 +1297,12 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         guild_id = cmd.get("guild_id")
         if not guild_id:
             return {"error": "Missing 'guild_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
         limit = cmd.get("limit", 50)
         members = []
-        for m in guild.members[:limit]:
+        async for m in guild.fetch_members(limit=limit):
             members.append({
                 "id": str(m.id),
                 "name": str(m),
@@ -1288,10 +1316,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         member_id = cmd.get("member_id")
         if not guild_id or not member_id:
             return {"error": "Missing 'guild_id' or 'member_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
-        member = guild.get_member(int(member_id))
+        member = await resolve_member_by_id(guild, member_id)
         if not member:
             return {"error": f"Member not found: {member_id}"}
         return {
@@ -1314,18 +1342,34 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         guild_id = cmd.get("guild_id")
         if not guild_id:
             return {"error": "Missing 'guild_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
         roles = []
-        for r in guild.roles:
+        fetched_roles = await guild.fetch_roles()
+        member_counts = None
+        # Member counts are opt-in: guild.fetch_members(limit=None) iterates the
+        # entire member list, which is slow and rate-limit-prone on large servers
+        # and requires the privileged Server Members intent. Skip it by default.
+        if cmd.get("with_member_counts"):
+            try:
+                member_counts = {role.id: 0 for role in fetched_roles}
+                async for member in guild.fetch_members(limit=None):
+                    for member_role in member.roles:
+                        if member_role.id in member_counts:
+                            member_counts[member_role.id] += 1
+            except discord.Forbidden:
+                # Reset to None so counts are reported as unavailable rather than
+                # silently as 0 for every role (the dict was already initialised).
+                member_counts = None
+        for r in fetched_roles:
             if r.name == "@everyone":
                 continue
             roles.append({
                 "id": str(r.id),
                 "name": r.name,
                 "color": str(r.color),
-                "members": len(r.members),
+                "members": member_counts.get(r.id) if member_counts is not None else None,
             })
         return {"ok": True, "roles": roles}
 
@@ -1335,13 +1379,13 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         role_id = cmd.get("role_id")
         if not all([guild_id, member_id, role_id]):
             return {"error": "Missing 'guild_id', 'member_id', or 'role_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
-        member = guild.get_member(int(member_id))
+        member = await resolve_member_by_id(guild, member_id)
         if not member:
             return {"error": f"Member not found: {member_id}"}
-        role = guild.get_role(int(role_id))
+        role = await resolve_role_by_id(guild, role_id)
         if not role:
             return {"error": f"Role not found: {role_id}"}
         await member.add_roles(role)
@@ -1353,13 +1397,13 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         role_id = cmd.get("role_id")
         if not all([guild_id, member_id, role_id]):
             return {"error": "Missing 'guild_id', 'member_id', or 'role_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
-        member = guild.get_member(int(member_id))
+        member = await resolve_member_by_id(guild, member_id)
         if not member:
             return {"error": f"Member not found: {member_id}"}
-        role = guild.get_role(int(role_id))
+        role = await resolve_role_by_id(guild, role_id)
         if not role:
             return {"error": f"Role not found: {role_id}"}
         await member.remove_roles(role)
@@ -1368,7 +1412,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── Thread Queries ─────────────────────────────────────────────
 
     async def _action_thread_list(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         threads = []
@@ -1385,7 +1429,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── New Action Handlers ───────────────────────────────────────
 
     async def _action_message_bulk_delete(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         message_ids = cmd.get("message_ids", [])
@@ -1424,7 +1468,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True}
 
     async def _action_channel_edit(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         kwargs = {}
@@ -1442,7 +1486,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True, "channel_id": str(ch.id), "updated": list(kwargs.keys())}
 
     async def _action_channel_set_permissions(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         target_type = cmd.get("target_type", "role")
@@ -1451,9 +1495,9 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             return {"error": "Missing 'target_id'"}
         guild = ch.guild
         if target_type == "role":
-            obj = guild.get_role(int(target_id))
+            obj = await resolve_role_by_id(guild, target_id)
         else:
-            obj = guild.get_member(int(target_id))
+            obj = await resolve_member_by_id(guild, target_id)
         if not obj:
             return {"error": f"Target not found: {target_id}"}
         overwrite = ch.overwrites_for(obj)
@@ -1468,7 +1512,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True}
 
     async def _action_forum_post(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         if not isinstance(ch, discord.ForumChannel):
@@ -1485,7 +1529,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     async def _action_thread_archive(cmd: dict) -> dict:
         thread_id = cmd.get("thread_id")
-        thread = client.get_channel(int(thread_id))
+        thread = await resolve_channel_by_id(thread_id)
         if not thread:
             return {"error": f"Thread not found: {thread_id}"}
         await thread.edit(archived=cmd.get("archived", True))
@@ -1494,7 +1538,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     async def _action_thread_rename(cmd: dict) -> dict:
         thread_id = cmd.get("thread_id")
         name = cmd.get("name")
-        thread = client.get_channel(int(thread_id))
+        thread = await resolve_channel_by_id(thread_id)
         if not thread:
             return {"error": f"Thread not found: {thread_id}"}
         await thread.edit(name=name)
@@ -1503,10 +1547,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     async def _action_thread_add_member(cmd: dict) -> dict:
         thread_id = cmd.get("thread_id")
         member_id = cmd.get("member_id")
-        thread = client.get_channel(int(thread_id))
+        thread = await resolve_channel_by_id(thread_id)
         if not thread:
             return {"error": f"Thread not found: {thread_id}"}
-        member = thread.guild.get_member(int(member_id))
+        member = await resolve_member_by_id(thread.guild, member_id)
         if not member:
             return {"error": f"Member not found: {member_id}"}
         await thread.add_user(member)
@@ -1515,10 +1559,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     async def _action_thread_remove_member(cmd: dict) -> dict:
         thread_id = cmd.get("thread_id")
         member_id = cmd.get("member_id")
-        thread = client.get_channel(int(thread_id))
+        thread = await resolve_channel_by_id(thread_id)
         if not thread:
             return {"error": f"Thread not found: {thread_id}"}
-        member = thread.guild.get_member(int(member_id))
+        member = await resolve_member_by_id(thread.guild, member_id)
         if not member:
             return {"error": f"Member not found: {member_id}"}
         await thread.remove_user(member)
@@ -1532,10 +1576,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         reason = cmd.get("reason")
         if not guild_id or not member_id:
             return {"error": "Missing 'guild_id' or 'member_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
-        member = guild.get_member(int(member_id))
+        member = await resolve_member_by_id(guild, member_id)
         if not member:
             return {"error": f"Member not found: {member_id}"}
         if duration < 0 or duration > 2419200:
@@ -1551,10 +1595,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         role_id = cmd.get("role_id")
         if not guild_id or not role_id:
             return {"error": "Missing 'guild_id' or 'role_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
-        role = guild.get_role(int(role_id))
+        role = await resolve_role_by_id(guild, role_id)
         if not role:
             return {"error": f"Role not found: {role_id}"}
         kwargs = {}
@@ -1573,7 +1617,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True, "role_id": str(role.id), "updated": list(kwargs.keys())}
 
     async def _action_reaction_users(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -1592,7 +1636,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         ]}
 
     async def _action_poll_results(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -1615,7 +1659,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         }
 
     async def _action_poll_end(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         msg = await ch.fetch_message(int(cmd["message_id"]))
@@ -1625,7 +1669,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True}
 
     async def _action_webhook_list(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         webhooks = await ch.webhooks()
@@ -1634,7 +1678,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         ]}
 
     async def _action_webhook_create(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         name = cmd.get("name", "discli webhook")
@@ -1642,7 +1686,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         return {"ok": True, "webhook_id": str(webhook.id), "name": webhook.name, "url": webhook.url}
 
     async def _action_webhook_delete(cmd: dict) -> dict:
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel not found: {cmd.get('channel_id')}"}
         webhooks = await ch.webhooks()
@@ -1660,10 +1704,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         guild_id = cmd.get("guild_id")
         if not guild_id:
             return {"error": "Missing 'guild_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
-        events = guild.scheduled_events
+        events = await guild.fetch_scheduled_events()
         return {"ok": True, "events": [
             {
                 "id": str(e.id),
@@ -1682,7 +1726,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         guild_id = cmd.get("guild_id")
         if not guild_id:
             return {"error": "Missing 'guild_id'"}
-        guild = client.get_guild(int(guild_id))
+        guild = await resolve_guild_by_id(guild_id)
         if not guild:
             return {"error": f"Server not found: {guild_id}"}
         name = cmd.get("name")
@@ -1704,7 +1748,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             kwargs["location"] = cmd["location"]
             kwargs["entity_type"] = discord.EntityType.external
         elif "channel_id" in cmd:
-            ch = resolve_channel_by_id(cmd["channel_id"])
+            ch = await resolve_channel_by_id(cmd["channel_id"])
             kwargs["channel"] = ch
             kwargs["entity_type"] = discord.EntityType.voice
         else:
@@ -1847,7 +1891,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         except (TypeError, ValueError):
             return {"error": f"Invalid user_id: {user_id}"}
 
-        guilds = [client.get_guild(int(guild_id))] if guild_id else list(client.guilds)
+        guilds = [await resolve_guild_by_id(guild_id)] if guild_id else list(client.guilds)
         matches = []
         for guild in guilds:
             if guild is None:
@@ -1930,7 +1974,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         user_id = cmd.get("user_id")
         raw = cmd.get("workflow", {})
 
-        ch = resolve_channel_by_id(channel_id)
+        ch = await resolve_channel_by_id(channel_id)
         if not ch:
             return {"error": f"Channel {channel_id} not found"}
 
@@ -1963,7 +2007,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         from discli.interact_engine import DashboardDefinition, DashboardPage
 
         channel_id = cmd.get("channel_id")
-        ch = resolve_channel_by_id(channel_id)
+        ch = await resolve_channel_by_id(channel_id)
         if not ch:
             return {"error": f"Channel {channel_id} not found"}
 
@@ -1982,7 +2026,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     async def _action_dashboard_update(cmd: dict) -> dict:
         engine = _get_interact_engine()
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel {cmd.get('channel_id')} not found"}
         await engine.dashboard_update(cmd.get("dashboard_id"), cmd.get("updates", {}), ch)
@@ -1990,7 +2034,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     async def _action_dashboard_delete(cmd: dict) -> dict:
         engine = _get_interact_engine()
-        ch = resolve_channel_by_id(cmd.get("channel_id"))
+        ch = await resolve_channel_by_id(cmd.get("channel_id"))
         if not ch:
             return {"error": f"Channel {cmd.get('channel_id')} not found"}
         await engine.dashboard_delete(cmd.get("dashboard_id"), ch)
@@ -2108,9 +2152,24 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     # ── Run (reconnect=True is discord.py default) ─────────────────
 
+    async def run_client():
+        try:
+            await client.start(token, reconnect=True)
+        finally:
+            if not client.is_closed():
+                await client.close()
+
     try:
-        asyncio.run(client.start(token, reconnect=True))
+        asyncio.run(run_client())
     except KeyboardInterrupt:
         emit({"event": "shutdown"})
+    except discord.PrivilegedIntentsRequired:
+        emit({
+            "event": "error",
+            "message": (
+                "Fatal: Discord rejected a privileged intent required by the selected events. "
+                "Message events require Message Content; member events require Server Members."
+            ),
+        })
     except Exception as e:
         emit({"event": "error", "message": f"Fatal: {e}"})

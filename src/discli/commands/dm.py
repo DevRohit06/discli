@@ -1,23 +1,7 @@
 import click
 
-from discli.client import run_discord
-from discli.utils import output
-
-
-def resolve_user(client, identifier: str):
-    """Resolve a user by ID or username."""
-    try:
-        user_id = int(identifier)
-        user = client.get_user(user_id)
-        if user:
-            return user
-    except ValueError:
-        pass
-    for guild in client.guilds:
-        for member in guild.members:
-            if member.name.lower() == identifier.lower() or str(member).lower() == identifier.lower():
-                return member
-    raise click.ClickException(f"User not found: {identifier}")
+from discli.client import run_rest
+from discli.utils import output, resolve_user
 
 
 @click.group("dm")
@@ -36,7 +20,7 @@ def dm_send(ctx, user, text, files):
 
     def action(client):
         async def _action(client):
-            u = resolve_user(client, user)
+            u = await resolve_user(client, user)
             dm_channel = await u.create_dm()
             attachments = [discord.File(f) for f in files]
             kwargs = {"content": text}
@@ -54,7 +38,7 @@ def dm_send(ctx, user, text, files):
             output(ctx, data, plain_text=f"Sent DM to {u} (ID: {u.id}): {text[:50]}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @dm_group.command("list")
@@ -66,7 +50,7 @@ def dm_list(ctx, user, limit):
 
     def action(client):
         async def _action(client):
-            u = resolve_user(client, user)
+            u = await resolve_user(client, user)
             dm_channel = await u.create_dm()
             messages = []
             async for msg in dm_channel.history(limit=limit):
@@ -84,4 +68,4 @@ def dm_list(ctx, user, limit):
             output(ctx, messages, plain_text="\n".join(plain_lines) if plain_lines else "No DMs found.")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)

@@ -1,36 +1,8 @@
 import click
 import discord
 
-from discli.client import run_discord
-from discli.utils import output, resolve_guild
-
-
-def resolve_role(guild, identifier: str):
-    try:
-        role_id = int(identifier)
-        role = guild.get_role(role_id)
-        if role:
-            return role
-    except ValueError:
-        pass
-    for role in guild.roles:
-        if role.name.lower() == identifier.lower():
-            return role
-    raise click.ClickException(f"Role not found: {identifier}")
-
-
-def resolve_member(guild, identifier: str):
-    try:
-        member_id = int(identifier)
-        member = guild.get_member(member_id)
-        if member:
-            return member
-    except ValueError:
-        pass
-    for member in guild.members:
-        if member.name.lower() == identifier.lower() or str(member).lower() == identifier.lower():
-            return member
-    raise click.ClickException(f"Member not found: {identifier}")
+from discli.client import run_rest
+from discli.utils import output, resolve_guild, resolve_member, resolve_role
 
 
 @click.group("role")
@@ -40,19 +12,54 @@ def role_group():
 
 @role_group.command("list")
 @click.argument("server")
+@click.option(
+    "--with-member-counts",
+    is_flag=True,
+    default=False,
+    help=(
+        "Compute per-role member counts. Off by default because it iterates the "
+        "entire member list (slow on large servers, needs the Server Members intent)."
+    ),
+)
 @click.pass_context
-def role_list(ctx, server):
+def role_list(ctx, server, with_member_counts):
     """List roles in a server."""
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
-            roles = [{"id": str(r.id), "name": r.name, "color": str(r.color), "members": len(r.members)} for r in guild.roles if r.name != "@everyone"]
-            plain_lines = [f"{r['name']} (ID: {r['id']}, color: {r['color']}, members: {r['members']})" for r in roles]
+            guild = await resolve_guild(client, server)
+            fetched_roles = await guild.fetch_roles()
+            member_counts = None
+            if with_member_counts:
+                try:
+                    member_counts = {role.id: 0 for role in fetched_roles}
+                    async for member in guild.fetch_members(limit=None):
+                        for member_role in member.roles:
+                            if member_role.id in member_counts:
+                                member_counts[member_role.id] += 1
+                except discord.Forbidden:
+                    # Reset to None so counts are reported as unavailable rather
+                    # than silently as 0 for every role.
+                    member_counts = None
+            roles = [
+                {
+                    "id": str(role.id),
+                    "name": role.name,
+                    "color": str(role.color),
+                    "members": member_counts.get(role.id) if member_counts is not None else None,
+                }
+                for role in fetched_roles
+                if role.name != "@everyone"
+            ]
+            plain_lines = [
+                f"{r['name']} (ID: {r['id']}, color: {r['color']}, "
+                f"members: {r['members'] if r['members'] is not None else 'unavailable'})"
+                for r in roles
+            ]
             output(ctx, roles, plain_text="\n".join(plain_lines) if plain_lines else "No roles.")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @role_group.command("create")
@@ -66,7 +73,7 @@ def role_create(ctx, server, name, color, permissions):
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
+            guild = await resolve_guild(client, server)
             kwargs = {"name": name}
             if color:
                 try:
@@ -80,7 +87,7 @@ def role_create(ctx, server, name, color, permissions):
             output(ctx, data, plain_text=f"Created role {role.name} (ID: {role.id})")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @role_group.command("delete")
@@ -94,15 +101,15 @@ def role_delete(ctx, server, role):
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
-            r = resolve_role(guild, role)
+            guild = await resolve_guild(client, server)
+            r = await resolve_role(guild, role)
             name = r.name
             await r.delete()
             audit_log("role delete", {"server": server, "role": name})
             output(ctx, {"name": name, "deleted": True}, plain_text=f"Deleted role {name}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @role_group.command("assign")
@@ -115,14 +122,14 @@ def role_assign(ctx, server, member, role):
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
-            m = resolve_member(guild, member)
-            r = resolve_role(guild, role)
+            guild = await resolve_guild(client, server)
+            m = await resolve_member(guild, member)
+            r = await resolve_role(guild, role)
             await m.add_roles(r)
             output(ctx, {"member": str(m), "role": r.name}, plain_text=f"Assigned {r.name} to {m}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @role_group.command("remove")
@@ -135,14 +142,14 @@ def role_remove(ctx, server, member, role):
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
-            m = resolve_member(guild, member)
-            r = resolve_role(guild, role)
+            guild = await resolve_guild(client, server)
+            m = await resolve_member(guild, member)
+            r = await resolve_role(guild, role)
             await m.remove_roles(r)
             output(ctx, {"member": str(m), "role": r.name}, plain_text=f"Removed {r.name} from {m}")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @role_group.command("edit")
@@ -157,8 +164,8 @@ def role_edit(ctx, server, role, name, color, hoist, mentionable):
     """Edit a role's properties."""
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
-            r = resolve_role(guild, role)
+            guild = await resolve_guild(client, server)
+            r = await resolve_role(guild, role)
             kwargs = {}
             if name is not None:
                 kwargs["name"] = name
@@ -177,4 +184,4 @@ def role_edit(ctx, server, role, name, color, hoist, mentionable):
             data = {"id": str(r.id), "name": r.name, "updated": list(kwargs.keys())}
             output(ctx, data, plain_text=f"Updated role {r.name}: {', '.join(kwargs.keys())}")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)

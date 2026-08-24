@@ -36,19 +36,19 @@ No linter is configured. Commit style: conventional commits (`feat:`, `fix:`, `d
 
 **Entry point:** `src/discli/cli.py` → Click root group → registers all command groups.
 
-**Core flow:** Click CLI → permission/audit check (security.py) → `run_discord()` (client.py) → async discord.py action → `output()` (utils.py).
+**Core flow:** Click CLI → permission/audit check (security.py) → `run_rest()` for one-shot HTTP actions or `run_gateway()` for live state → async discord.py action → `output()` (utils.py).
 
 **Key modules:**
-- `client.py` — Token resolution (flag → env var → config file), `run_discord()` sync wrapper around async Discord actions
+- `client.py` — Token resolution, REST/Gateway lifecycle separation, and minimal Gateway intent construction
 - `security.py` — Permission profiles (full/chat/readonly/moderation/voice/interact), audit logging to `~/.discli/audit.log` (JSONL), token-bucket rate limiter
-- `utils.py` — Output formatting (text/JSON via `--json` flag), channel/guild resolvers
+- `utils.py` — Output formatting plus async, cache-first resource resolvers with REST fallbacks
 - `config.py` — Token storage at `~/.discli/config.json`
 - `voice_engine.py` — VoiceEngine with AudioPlayer, AudioListener, VAD-based speech segmentation, audio codec handling
 - `interact_engine.py` — InteractEngine for modals, workflows, and dashboards with interaction routing and state management
 - `tts.py` — TTS provider protocol with ElevenLabs and OpenAI implementations
 - `stt.py` — STT provider protocol with Deepgram and OpenAI Whisper implementations
 
-**Command pattern:** Each module in `commands/` defines Click commands, takes an async action function, and calls `run_discord(ctx, action)`. Follow existing modules when adding new commands.
+**Command pattern:** Each module in `commands/` defines Click commands and an async action. One-shot commands call `run_rest(ctx, action)`. Only live events, voice state, and persistent connections call `run_gateway(ctx, action, features=...)` or manage a long-lived Gateway client directly.
 
 **`serve` command (commands/serve.py):** The largest module (~1200 lines). Runs a persistent bot with bidirectional JSONL over stdin/stdout. Features: event forwarding, action dispatch (send/reply/edit/delete/stream/typing/reactions/threads/polls/channels/members/roles/DMs), voice actions (connect/speak/play/listen/etc.), interactive actions (workflows, dashboards), slash command registration, streaming message edits with periodic flush, Windows-compatible stdin reading via threading.
 

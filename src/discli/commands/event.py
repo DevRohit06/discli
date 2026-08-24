@@ -1,7 +1,7 @@
 import click
 import discord
 
-from discli.client import run_discord
+from discli.client import run_rest
 from discli.utils import output, resolve_guild
 
 
@@ -17,8 +17,8 @@ def event_list(ctx, server):
     """List scheduled events in a server."""
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
-            events = guild.scheduled_events
+            guild = await resolve_guild(client, server)
+            events = await guild.fetch_scheduled_events()
             data = []
             for e in events:
                 data.append({
@@ -34,7 +34,7 @@ def event_list(ctx, server):
             plain_lines = [f"{ev['name']} ({ev['status']}) - {ev['start_time']}" for ev in data]
             output(ctx, data, plain_text="\n".join(plain_lines) if plain_lines else "No events.")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @event_group.command("create")
@@ -52,7 +52,7 @@ def event_create(ctx, server, name, start_time, end_time, description, location,
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
+            guild = await resolve_guild(client, server)
             try:
                 start = datetime.fromisoformat(start_time)
             except ValueError:
@@ -72,7 +72,7 @@ def event_create(ctx, server, name, start_time, end_time, description, location,
                     raise click.ClickException("External events require --end-time")
             elif channel:
                 from discli.utils import resolve_channel
-                ch = resolve_channel(client, channel)
+                ch = await resolve_channel(client, channel)
                 kwargs["channel"] = ch
                 if isinstance(ch, discord.StageChannel):
                     kwargs["entity_type"] = discord.EntityType.stage_instance
@@ -84,7 +84,7 @@ def event_create(ctx, server, name, start_time, end_time, description, location,
             data = {"id": str(event.id), "name": event.name}
             output(ctx, data, plain_text=f"Created event '{event.name}' (ID: {event.id})")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)
 
 
 @event_group.command("delete")
@@ -98,13 +98,11 @@ def event_delete(ctx, server, event_id):
 
     def action(client):
         async def _action(client):
-            guild = resolve_guild(client, server)
-            event = guild.get_scheduled_event(int(event_id))
-            if not event:
-                raise click.ClickException(f"Event not found: {event_id}")
+            guild = await resolve_guild(client, server)
+            event = await guild.fetch_scheduled_event(int(event_id))
             name = event.name
             await event.delete()
             audit_log("event delete", {"server": server, "event_id": event_id})
             output(ctx, {"id": event_id, "deleted": True}, plain_text=f"Deleted event '{name}'")
         return _action(client)
-    run_discord(ctx, action)
+    run_rest(ctx, action)

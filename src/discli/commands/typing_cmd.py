@@ -2,7 +2,7 @@ import asyncio
 
 import click
 
-from discli.client import run_discord
+from discli.client import run_rest
 from discli.utils import resolve_channel
 
 
@@ -15,10 +15,10 @@ def typing_cmd(ctx, channel, duration):
 
     def action(client):
         async def _action(client):
-            ch = resolve_channel(client, channel)
+            ch = await resolve_channel(client, channel)
             async with ch.typing():
                 await asyncio.sleep(duration)
             click.echo(f"Typed in #{ch.name} for {duration}s")
         return _action(client)
 
-    run_discord(ctx, action)
+    run_rest(ctx, action)
