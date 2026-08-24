@@ -497,3 +497,177 @@ def message_pins(ctx, channel, limit):
         return _action(client)
 
     run_rest(ctx, action)
+
+
+# Discord opened GET /guilds/{id}/messages/search to bots on 2026-03-19, but
+# discord.py 2.7.1 does not wrap it -- there is no Guild.search() to call. Going
+# through discord.http.Route keeps the request inside discord.py's rate limiter
+# and auth handling, unlike a hand-rolled aiohttp call would.
+SEARCH_HAS_CHOICES = ["link", "embed", "file", "image", "video", "sound", "sticker", "poll"]
+SEARCH_MAX_LIMIT = 25
+SEARCH_MAX_OFFSET = 9975
+SEARCH_MAX_CONTENT = 1024
+
+
+@message_group.command("search-server")
+@click.argument("server")
+@click.argument("query", required=False)
+@click.option("--author", "authors", multiple=True, help="Filter by author (ID or name, repeatable).")
+@click.option(
+    "--author-type",
+    "author_types",
+    multiple=True,
+    type=click.Choice(["user", "bot", "webhook"]),
+    help="Filter by author kind (repeatable).",
+)
+@click.option("--channel", "channels", multiple=True, help="Limit to these channels (name or ID, repeatable).")
+@click.option("--mentions", multiple=True, help="Messages mentioning this user (ID or name, repeatable).")
+@click.option(
+    "--has",
+    multiple=True,
+    type=click.Choice(SEARCH_HAS_CHOICES),
+    help="Only messages containing this kind of content (repeatable).",
+)
+@click.option("--extension", "extensions", multiple=True, help="Match attachments with this file extension (repeatable).")
+@click.option("--pinned/--no-pinned", default=None, help="Restrict to pinned (or unpinned) messages.")
+@click.option("--sort-by", type=click.Choice(["relevance", "timestamp"]), default="timestamp", help="Result ordering.")
+@click.option("--sort-order", type=click.Choice(["desc", "asc"]), default="desc", help="Ordering direction.")
+@click.option("--limit", default=SEARCH_MAX_LIMIT, type=int, help="Results per page (1-25).")
+@click.option("--offset", default=0, type=int, help="Pagination offset (0-9975).")
+@click.pass_context
+def message_search_server(
+    ctx, server, query, authors, author_types, channels, mentions, has,
+    extensions, pinned, sort_by, sort_order, limit, offset,
+):
+    """Search messages across a whole server using Discord's search index.
+
+    Unlike `message search`, which scans one channel's recent history client
+    side, this hits Discord's native endpoint: every channel the bot can see,
+    relevance ranking, and filters the local scan cannot express.
+
+    Discord marks this endpoint a preview feature. It returns nothing until it
+    has indexed the server; when that happens this reports the server as
+    unindexed rather than as empty.
+    """
+    if not any([query, authors, author_types, channels, mentions, has, extensions]) and pinned is None:
+        raise click.ClickException("Give a query or at least one filter; see --help.")
+    if query and len(query) > SEARCH_MAX_CONTENT:
+        raise click.ClickException(f"Query cannot exceed {SEARCH_MAX_CONTENT} characters.")
+    if not 1 <= limit <= SEARCH_MAX_LIMIT:
+        raise click.ClickException(f"--limit must be between 1 and {SEARCH_MAX_LIMIT}.")
+    if not 0 <= offset <= SEARCH_MAX_OFFSET:
+        raise click.ClickException(f"--offset must be between 0 and {SEARCH_MAX_OFFSET}.")
+
+    def action(client):
+        async def _action(client):
+            from discord.http import Route
+
+            from discli.utils import resolve_guild, resolve_member
+
+            guild = await resolve_guild(client, server)
+
+            async def _user_id(value: str) -> str:
+                try:
+                    return str(int(value))
+                except ValueError:
+                    member = await resolve_member(guild, value)
+                    return str(member.id)
+
+            # Repeated keys rather than a dict: Discord expects array params
+            # as ?author_id=1&author_id=2.
+            params: list[tuple[str, str]] = []
+            if query:
+                params.append(("content", query))
+            for value in authors:
+                params.append(("author_id", await _user_id(value)))
+            for value in author_types:
+                params.append(("author_type", value))
+            for value in mentions:
+                params.append(("mentions", await _user_id(value)))
+            if channels:
+                guild_channels = await guild.fetch_channels()
+                for value in channels:
+                    normalized = value.removeprefix("#").casefold()
+                    matches = [
+                        ch for ch in guild_channels
+                        if str(ch.id) == value or ch.name.casefold() == normalized
+                    ]
+                    if not matches:
+                        raise click.ClickException(f"Channel not found in {guild.name}: {value}")
+                    if len(matches) > 1:
+                        ids = ", ".join(str(ch.id) for ch in matches)
+                        raise click.ClickException(
+                            f"Multiple channels match '{value}' (IDs: {ids}). Use a channel ID."
+                        )
+                    params.append(("channel_id", str(matches[0].id)))
+            for value in has:
+                params.append(("has", value))
+            for value in extensions:
+                params.append(("attachment_extension", value.lstrip(".")))
+            if pinned is not None:
+                params.append(("pinned", "true" if pinned else "false"))
+            params.append(("sort_by", sort_by))
+            params.append(("sort_order", sort_order))
+            params.append(("limit", str(limit)))
+            params.append(("offset", str(offset)))
+
+            route = Route("GET", "/guilds/{guild_id}/messages/search", guild_id=guild.id)
+            payload = await client.http.request(route, params=params)
+
+            # A 202 means the index is still building. discord.py hands back
+            # 2xx bodies as-is, so the tell is a response with no "messages"
+            # key. Reporting that as "no results" would be a wrong answer
+            # rather than a slow one.
+            groups = (payload or {}).get("messages")
+            if groups is None:
+                raise click.ClickException(
+                    f"Discord has not finished indexing '{guild.name}' for search. "
+                    "Try again shortly, or scan a single channel client-side with "
+                    "'discli message search <channel> <query>'."
+                )
+
+            results = []
+            for group in groups:
+                if not group:
+                    continue
+                # Each group is the hit plus surrounding context; the hit is
+                # flagged, but fall back to the first entry if it is not.
+                raw = next((m for m in group if m.get("hit")), group[0])
+                author = raw.get("author") or {}
+                channel_id = raw.get("channel_id")
+                results.append({
+                    "id": raw.get("id"),
+                    "channel_id": channel_id,
+                    "author": author.get("global_name") or author.get("username"),
+                    "author_id": author.get("id"),
+                    "is_bot": author.get("bot", False),
+                    "content": raw.get("content", ""),
+                    "timestamp": raw.get("timestamp"),
+                    "pinned": raw.get("pinned", False),
+                    "attachments": [
+                        {"filename": a.get("filename"), "url": a.get("url"), "size": a.get("size")}
+                        for a in raw.get("attachments", [])
+                    ],
+                    "jump_url": f"https://discord.com/channels/{guild.id}/{channel_id}/{raw.get('id')}",
+                })
+
+            data = {
+                "total_results": payload.get("total_results", len(results)),
+                "returned": len(results),
+                "offset": offset,
+                "results": results,
+            }
+
+            plain_lines = []
+            for r in results:
+                stamp = (r["timestamp"] or "")[:19].replace("T", " ")
+                plain_lines.append(f"[{stamp}] {r['author']}: {r['content']}")
+                plain_lines.append(f"    {r['jump_url']}")
+            if not results:
+                plain = "No matching messages."
+            else:
+                plain = "\n".join(plain_lines) + f"\n\n{len(results)} of {data['total_results']} result(s)"
+            output(ctx, data, plain_text=plain)
+        return _action(client)
+
+    run_rest(ctx, action)

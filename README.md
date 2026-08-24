@@ -47,7 +47,8 @@ Some Discord HTTP endpoints and response fields are still restricted by applicat
 
 ## What you can do
 
-- **Messages**: send, edit, delete, search, history, embeds, attachments, replies
+- **Messages**: send, edit, delete, history, embeds, attachments, replies, pins
+- **Search**: scan one channel, or search a whole server through Discord's own index (by author, mentions, attachment type, pinned)
 - **Channels & roles**: create, edit, delete, list, get info
 - **Members**: list, info, kick, ban, nickname, role assignment, move between voice channels
 - **Threads**: create, list, archive, message inside
@@ -59,6 +60,7 @@ Some Discord HTTP endpoints and response fields are still restricted by applicat
 - **AI agents**: `discli serve` keeps a persistent bot open over stdin/stdout JSONL; drive it from Claude, OpenAI, LangChain, bash
 - **Interactive components**: modals, multi-step workflows with state, persistent dashboards
 - **Voice** *(optional extra)*: join voice channels, transcribe speech, TTS, audio playback, live meeting summaries
+- **Scheduling**: `discli schedule` runs discli commands daily at a wall-clock time or on an interval
 - **Doctor**: `discli doctor` verifies your setup in one command; `--server NAME` also checks the bot's real Discord permissions
 
 ## Install

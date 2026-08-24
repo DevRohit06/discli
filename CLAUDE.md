@@ -32,7 +32,7 @@ uv build
 
 No linter is configured. Commit style: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).
 
-There is no pytest config or `conftest.py` — `asyncio_mode` is unset, so async tests need explicit `@pytest.mark.asyncio`. `tests/test_examples.py` imports and executes every file in `examples/`, so a broken example breaks the suite.
+There is no pytest config, and `asyncio_mode` is unset, so async tests need explicit `@pytest.mark.asyncio`. `tests/conftest.py` holds one autouse fixture, `no_network`, which patches `discord.http.HTTPClient.request`/`static_login` to raise — without it a test that drives the CLI end to end falls back to the developer's own token in `~/.discli/config.json` and makes live API calls that pass locally and fail in CI. `tests/test_examples.py` imports and executes every file in `examples/`, so a broken example breaks the suite.
 
 ## Environment Variables
 
@@ -52,6 +52,10 @@ Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_
 - `run_rest_action()` sets `Intents.members = True` on the login-only client. That flag never reaches Discord — it exists to defeat discord.py's *client-side* guard in `Guild.fetch_members()`, which raises `ClientException` (a sibling of `HTTPException`, so no handler catches it) before any request goes out. Do not "clean this up" to `Intents.none()`.
 - Channel listings are scoped to what the bot can view, and from **2026-11-16** Discord drops channels without `VIEW_CHANNEL` from `GET /guilds/{id}/channels` and the Gateway entirely. No API reports how many were withheld. `channel list` and `server info` disclose this via `warn_channel_visibility()` on **stderr** — deliberately not stdout, so `--json` payloads stay parseable. `serve`'s `channel_list` sets `visible_only: true` in-band instead, because JSONL has no stderr equivalent.
 - Discord split `PIN_MESSAGES`, `BYPASS_SLOWMODE`, `CREATE_GUILD_EXPRESSIONS`, and `CREATE_EVENTS` out of broader permissions during 2026. A bot invited before the split keeps the old bit and silently loses the new capability. `discli doctor --server <name>` detects exactly that case (holds legacy bit, lacks split bit); see `PERMISSION_SPLITS` in `commands/doctor.py`.
+- `message search-server` calls `GET /guilds/{id}/messages/search` through a raw `discord.http.Route`, because discord.py 2.7.1 does not wrap that endpoint. Going through `Route` keeps it inside discord.py's rate limiter and auth. Discord answers **202 with no `messages` key** while it is still indexing a guild — treating that as an empty result set would report a wrong answer rather than a slow one.
+- `schedule` actions are discli command lines, never shell commands. `parse_action()` lexes with `shlex(punctuation_chars=True)` so `;` and `&&` become their own tokens, then walks the real Click tree. Backticks and `$` are deliberately *not* rejected — no shell is involved, and a message containing backtick-wrapped code formatting is ordinary Discord content.
+- Scheduled actions run via `asyncio.to_thread`: discli commands call `asyncio.run()` internally, which raises if invoked from the scheduler's own running event loop.
+- `tzdata` is a Windows-only conditional dep. Windows ships no IANA tz database, so `schedule --tz` would otherwise raise `ZoneInfoNotFoundError`.
 
 ## Architecture
 
@@ -68,6 +72,7 @@ Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_
 - `interact_engine.py` — InteractEngine for modals, workflows, and dashboards with interaction routing and state management
 - `tts.py` — TTS provider protocol with ElevenLabs and OpenAI implementations
 - `stt.py` — STT provider protocol with Deepgram and OpenAI Whisper implementations
+- `commands/schedule.py` — `discli schedule`, recurring discli commands stored in `~/.discli/schedules.json`; `schedule run` drives them with `discord.ext.tasks`
 - `commands/doctor.py` — `discli doctor`, the first-stop diagnostic: checks token, ffmpeg on PATH, DAVE/Opus voice patches, provider API keys. All local unless `--server` is passed, which adds the network permission-bitfield check
 
 The `permission` and `audit` command groups are defined inline in `cli.py`, not in `commands/`.

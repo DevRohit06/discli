@@ -348,11 +348,45 @@ Notes from the build:
 - Not covered: `serve` has no test harness in this repo, so its one-line `visible_only`
   addition is verified by reading, not by a test.
 
-**Wave 3 — new capability**
-Native guild message search (raw route, 202 handling, `--local` fallback) · `ext.tasks`
-hardening of the flush loop · `discli schedule`.
+**Wave 3 — SHIPPED 2026-08-25**
+Native guild message search · `ext.tasks` hardening of the flush loop · `discli schedule`.
 
-**Wave 4 — needs design first**
+Notes from the build:
+
+- Shipped as a **separate command**, `message search-server`, rather than a `--guild` flag on
+  `message search`. That command takes its channel as a required positional argument, so a
+  flag would have meant either an optional positional or a breaking signature change. The
+  two searches also answer different questions, so the local scan stays as the documented
+  fallback for unindexed guilds — which is the `--local` idea from the original plan, just
+  spelled as the command that already existed.
+- The 202 case matters more than it looks. discord.py returns 2xx bodies as-is, so an
+  unindexed guild comes back as a dict with no `messages` key. Rendering that as "no results"
+  would be a **wrong answer**, not a slow one, so it raises with a pointer to the local scan.
+- `parse_action()` in the scheduler lexes with `shlex(punctuation_chars=True)`. Plain
+  `shlex.split()` folds `;` into its neighbour (`list;`), so `server list; rm -rf /` was
+  accepted by the operator check and only rejected later by the command-tree walk, with a
+  confusing message. No shell is ever involved, so nothing was executable either way — but
+  the error should say what is actually wrong.
+- Backticks and `$` are deliberately **not** treated as shell syntax. Rejecting them would
+  break `message send <ch> "run <backtick>npm test<backtick>"`, and with no shell involved
+  they cannot do anything. `$(...)` is still caught via its parenthesis.
+- Scheduled actions run through `asyncio.to_thread`: discli commands call `asyncio.run()`
+  internally, which raises if called from the scheduler's own running loop.
+- `tzdata` became a Windows-only dependency. Windows ships no IANA tz database, so
+  `ZoneInfo("America/New_York")` raises there — `--tz` would have been broken on the primary
+  development platform.
+- **A test in this wave initially made live Discord API calls.** `discli.cli` does
+  `from discli.config import load_config` at import time, so patching
+  `discli.config.load_config` was a no-op and the developer's real token was picked up from
+  `~/.discli/config.json`. It passed locally and would have failed in CI. `tests/conftest.py`
+  now carries an autouse `no_network` fixture that patches `discord.http.HTTPClient` so this
+  cannot recur silently.
+- Only the stream-flush loop moved to `ext.tasks`. `_typing_loop` was left alone: it holds
+  `async with ch.typing()` open around a sleep, and discord.py's own `Typing` context manager
+  already re-sends the indicator: restructuring it into a repeating callback would be a
+  regression in clarity, not a hardening.
+
+**Wave 4 — needs design first** (all that remains)
 Components v2 / Modal v2 rework of `interact_engine.py` · server-as-code (`server export` /
 `diff` / `apply`) · automod · onboarding.
 

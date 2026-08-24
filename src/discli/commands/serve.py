@@ -12,6 +12,7 @@ import uuid
 
 import click
 import discord
+from discord.ext import tasks
 try:
     from discord import app_commands  # discord.py
     if not hasattr(app_commands, "CommandTree"):
@@ -660,17 +661,52 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
 
     # ── Streaming Edits ────────────────────────────────────────────
 
-    async def _stream_flush_loop(stream_id: str):
-        """Flush buffered content to Discord every STREAM_EDIT_INTERVAL seconds."""
-        try:
-            while True:
-                await asyncio.sleep(STREAM_EDIT_INTERVAL)
-                stream = streams.get(stream_id)
-                if not stream or stream.get("done"):
-                    break
-                await _stream_flush(stream_id)
-        except asyncio.CancelledError:
-            pass
+    def _make_stream_flush_loop(stream_id: str) -> tasks.Loop:
+        """Build the periodic flush loop for one stream.
+
+        This was a bare ``while True: await asyncio.sleep(...)`` task that
+        caught only CancelledError. Any other exception killed flushing for
+        that stream for the life of the process, silently — the task's
+        exception was never retrieved, so the caller just saw a message stop
+        updating. tasks.Loop retries transient network errors with exponential
+        backoff and routes everything else to the error handler below, where
+        it becomes a JSONL event the driving agent can actually see.
+        """
+
+        async def _flush() -> None:
+            stream = streams.get(stream_id)
+            if not stream or stream.get("done"):
+                loop.stop()
+                return
+            await _stream_flush(stream_id)
+
+        loop = tasks.Loop(
+            _flush,
+            seconds=STREAM_EDIT_INTERVAL,
+            hours=0,
+            minutes=0,
+            time=discord.utils.MISSING,
+            count=None,
+            reconnect=True,
+            name=f"discli-stream-flush-{stream_id}",
+        )
+
+        @loop.before_loop
+        async def _wait_first_interval() -> None:
+            # tasks.Loop runs the body before its first sleep; the loop this
+            # replaced slept first. Preserve that so a stream that finishes
+            # inside the first interval never issues a spurious edit.
+            await asyncio.sleep(STREAM_EDIT_INTERVAL)
+
+        @loop.error
+        async def _on_flush_error(exc: BaseException) -> None:
+            emit({
+                "type": "error",
+                "error": f"stream flush failed: {exc!r}",
+                "stream_id": stream_id,
+            })
+
+        return loop
 
     async def _stream_flush(stream_id: str):
         stream = streams.get(stream_id)
@@ -738,8 +774,10 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
             "done": False,
         }
 
-        # Start periodic flush task
-        asyncio.create_task(_stream_flush_loop(stream_id))
+        # Start periodic flush loop
+        flush_loop = _make_stream_flush_loop(stream_id)
+        streams[stream_id]["flush_loop"] = flush_loop
+        flush_loop.start()
 
         return {"stream_id": stream_id, "message_id": str(msg.id)}
 
@@ -758,6 +796,13 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         if not stream:
             return {"error": f"Unknown stream: {stream_id}"}
         stream["done"] = True
+
+        # Stop the periodic flush before the final edit. Setting done=True only
+        # stops the *next* tick; a flush already in flight could otherwise land
+        # after the final edit and rewrite the message with stale content.
+        flush_loop = stream.pop("flush_loop", None)
+        if flush_loop is not None:
+            flush_loop.cancel()
 
         # Final flush
         msg = stream["message"]

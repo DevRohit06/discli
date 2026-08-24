@@ -16,6 +16,9 @@ classifiers = [
 dependencies = [
     "click>=8.3.2",
     "discord-py>=2.7.1",
+    # Windows ships no IANA tz database, so zoneinfo.ZoneInfo("America/New_York")
+    # raises ZoneInfoNotFoundError there. `discli schedule --tz` needs it.
+    "tzdata ; sys_platform == 'win32'",
 ]
 
 [project.scripts]

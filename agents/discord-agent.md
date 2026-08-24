@@ -24,7 +24,17 @@ discli message bulk-delete <channel> <msg_id1> <msg_id2> ...
 discli message pin <channel> <message_id> [--reason "why"]
 discli message unpin <channel> <message_id>
 discli message pins <channel> --limit 50
+discli message search-server "server name" "query"          # whole server, Discord's own index
+discli message search-server "server" "outage" --author <user> --has file --sort-by relevance
+discli message search-server "server" --channel #general --pinned --limit 25
 ```
+Two different searches, on purpose:
+- `message search <channel> "q"` scans one channel's recent history client-side (`--scan`, default 500).
+  Works everywhere, but misses anything older than the scan window.
+- `message search-server "server" "q"` uses Discord's native index: every channel the bot can see,
+  relevance ranking, and filters (`--author`, `--author-type`, `--mentions`, `--has`, `--extension`,
+  `--pinned`) the local scan cannot express. Prefer this one. It is a Discord preview feature, and
+  reports the server as *unindexed* rather than empty when Discord has not finished indexing it.
 Pinning needs the **Pin Messages** permission, which Discord split out of Manage Messages in January 2026.
 
 ### Reactions
@@ -59,6 +69,23 @@ channels the bot can view, and from 2026-11-16 Discord omits the rest from the A
 entirely. Both write a one-line note to **stderr**; `--json` stdout is unaffected, so
 parsing stays safe. Over `serve`, the `channel_list` response carries `visible_only: true`
 instead. A short list may mean missing permissions, not an empty server.
+
+### Scheduling
+```bash
+discli schedule add standup --action 'message send <channel> "Standup in 5"' --time 09:00 --tz America/New_York
+discli schedule add digest --action 'server list' --every 6h --count 10
+discli schedule list
+discli schedule run-now standup       # fire once, right now
+discli schedule remove standup
+discli schedule run                   # foreground scheduler; runs until interrupted
+```
+Schedules live in `~/.discli/schedules.json`. Nothing fires until `discli schedule run` is running.
+
+An `--action` is a **discli command line, not a shell command**. It is split with `shlex` and validated
+against the real command tree when you add it, so typos surface immediately rather than at 3am. Shell
+operators (`&&`, `|`, `;`, `>`, `$(...)`) are rejected because no shell is involved and they would be
+passed through as literal arguments. Give either `--time HH:MM` (daily, `--tz` defaults to UTC) or
+`--every 30s|15m|2h|1d`; the minimum interval is 30s.
 
 ### Diagnostics
 ```bash
