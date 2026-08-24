@@ -71,7 +71,7 @@ Open [discord.com/developers/applications](https://discord.com/developers/applic
 Navigate to **Bot** > **Privileged Gateway Intents** > enable **Message Content Intent**.
 </Step>
 <Step title="Restart discli">
-The intent change takes effect on the next gateway connection. Restart `discli serve` or `discli listen`.
+The intent change takes effect on the next gateway connection. Restart `discli serve` or `discli listen`. One-shot commands do not open a gateway connection at all, so they are unaffected by this toggle.
 </Step>
 </Steps>
 
@@ -93,13 +93,18 @@ Error: Rate limited. Retry after 2.5s.
 
 **Symptom:** You run `discli listen --events messages` and the process starts but no events appear, even when messages are sent in the server.
 
-**Cause:** The GUILD_MESSAGES intent is not enabled, or the bot does not have permission to view the channel.
+**Cause:** The Message Content intent is not enabled, or the bot does not have permission to view the channel.
 
 **Fix:**
 
-1. Enable **Server Members Intent** and **Message Content Intent** in the Developer Portal (see above)
+1. Enable **Message Content Intent** in the Developer Portal (see above). `--events messages` is the filter that requests it; `--events reactions` does not need it
 2. Verify the bot has **View Channel** and **Read Message History** permissions in the target channel
 3. Check that the bot is actually in the server — `discli server list` should show it
+
+<Callout type="note">
+`discli listen` requests only the intents its `--events` filter needs. If you narrowed the
+filter, you narrowed the `IDENTIFY` too — see [Connection Model](/architecture/connection-model).
+</Callout>
 
 ## `discli serve` exits immediately
 
@@ -122,7 +127,7 @@ discli config show
 ```
 
 <Callout type="note">
-If `discli server list` works but `discli serve` exits, the issue is likely a missing gateway intent. The REST API (used by CLI commands) does not require intents, but the gateway connection (used by serve) does.
+If `discli server list` works but `discli serve` exits, the issue is likely a missing gateway intent. One-shot CLI commands go over HTTP and never send intents, but `serve`, `listen`, and `voice` open a gateway connection that Discord rejects outright if a declared privileged intent is disabled. Narrow `--events` to drop the intents you do not need — see [Connection Model](/architecture/connection-model).
 </Callout>
 
 ## Slash commands do not appear

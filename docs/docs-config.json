@@ -73,6 +73,7 @@
         "label": "Architecture",
         "items": [
           { "label": "Overview", "href": "/architecture/overview" },
+          { "label": "Connection Model", "href": "/architecture/connection-model" },
           { "label": "Serve Protocol", "href": "/architecture/serve-protocol" },
           { "label": "Security Model", "href": "/architecture/security-model" },
           { "label": "Token Resolution", "href": "/architecture/token-resolution" }

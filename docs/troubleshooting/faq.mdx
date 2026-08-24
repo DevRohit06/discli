@@ -28,7 +28,9 @@ If a self-hosted platform offers a Discord-compatible API, discli might work by 
 <Accordion title="Can multiple agents share one bot token?">
 **One `discli serve` instance per token.** Discord's gateway allows a single active WebSocket connection per bot token. Running two `discli serve` processes with the same token causes a reconnect loop.
 
-However, **CLI commands can run concurrently** with no issues. They use stateless REST API calls, so you can have one `discli serve` running and simultaneously use `discli message send` from another terminal or script.
+However, **one-shot CLI commands can run concurrently** with no issues. They use stateless REST API calls and never open a gateway connection, so you can have one `discli serve` running and simultaneously use `discli message send` from another terminal or script.
+
+The exceptions are `discli listen` and the `discli voice` commands, which need live gateway state and therefore compete for the same single-connection slot as `serve`.
 
 If you need multiple independent agents, create a separate bot application and token for each one.
 </Accordion>

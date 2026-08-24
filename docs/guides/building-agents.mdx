@@ -60,7 +60,7 @@ for line in proc.stdout:
 - The `for line in proc.stdout` loop blocks until the next event arrives
 
 <Callout type="warning">
-**What could go wrong:** Every `reply()` call spawns a new discli process, which creates a new Discord connection, authenticates, sends the message, and disconnects. This takes 2-3 seconds per reply. Fine for low-traffic bots, but it will not scale.
+**What could go wrong:** Every `reply()` call spawns a new discli process, which starts a Python interpreter, authenticates a fresh HTTP client, sends the message, and exits. There is no Gateway handshake (see [Connection Model](/architecture/connection-model)), but process startup and a cold HTTP session still dominate the cost, and each reply pays it again. Fine for low-traffic bots, but it will not scale.
 </Callout>
 
 ---

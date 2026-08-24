@@ -32,6 +32,25 @@ uv build
 
 No linter is configured. Commit style: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).
 
+There is no pytest config or `conftest.py` — `asyncio_mode` is unset, so async tests need explicit `@pytest.mark.asyncio`. `tests/test_examples.py` imports and executes every file in `examples/`, so a broken example breaks the suite.
+
+## Environment Variables
+
+- `DISCORD_BOT_TOKEN` — bot token (Click `envvar`, also read by `client.py`)
+- `DISCLI_TTS` / `DISCLI_STT` / `DISCLI_TTS_VOICE` — provider selection
+- `DISCLI_DEEPGRAM_MODEL` (default `nova-3`), `DISCLI_DEEPGRAM_LANGUAGE` (default `multi`)
+- `ELEVENLABS_API_KEY`, `DEEPGRAM_API_KEY`, `OPENAI_API_KEY` — provider credentials
+
+Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_TOKEN`.
+
+## Gotchas
+
+- `discord-ext-voice-recv==0.5.2a179` is an exact pin — do not bump. See the justification comment in `pyproject.toml` (0.4.x lacks the required cipher; 0.5.0a167 has a circular import; 0.5.1a170 doesn't deliver audio).
+- Voice requires **ffmpeg on PATH** and the DAVE encryption patch. Run `discli doctor` first when voice misbehaves.
+- `audioop-lts` is a conditional dep for Python ≥3.13 (stdlib `audioop` removal).
+- Intents are only sent on the Gateway path (`listen`, `serve`, `voice`). One-shot commands use `run_rest()` and transmit no intents. Missing privileged intents fail the whole Gateway connection (`PrivilegedIntentsRequired`) but only fail individual REST calls with a 403.
+- `run_rest_action()` sets `Intents.members = True` on the login-only client. That flag never reaches Discord — it exists to defeat discord.py's *client-side* guard in `Guild.fetch_members()`, which raises `ClientException` (a sibling of `HTTPException`, so no handler catches it) before any request goes out. Do not "clean this up" to `Intents.none()`.
+
 ## Architecture
 
 **Entry point:** `src/discli/cli.py` → Click root group → registers all command groups.
@@ -47,10 +66,13 @@ No linter is configured. Commit style: conventional commits (`feat:`, `fix:`, `d
 - `interact_engine.py` — InteractEngine for modals, workflows, and dashboards with interaction routing and state management
 - `tts.py` — TTS provider protocol with ElevenLabs and OpenAI implementations
 - `stt.py` — STT provider protocol with Deepgram and OpenAI Whisper implementations
+- `commands/doctor.py` — `discli doctor`, the first-stop diagnostic: checks token, ffmpeg on PATH, DAVE/Opus voice patches, provider API keys
+
+The `permission` and `audit` command groups are defined inline in `cli.py`, not in `commands/`.
 
 **Command pattern:** Each module in `commands/` defines Click commands and an async action. One-shot commands call `run_rest(ctx, action)`. Only live events, voice state, and persistent connections call `run_gateway(ctx, action, features=...)` or manage a long-lived Gateway client directly.
 
-**`serve` command (commands/serve.py):** The largest module (~1200 lines). Runs a persistent bot with bidirectional JSONL over stdin/stdout. Features: event forwarding, action dispatch (send/reply/edit/delete/stream/typing/reactions/threads/polls/channels/members/roles/DMs), voice actions (connect/speak/play/listen/etc.), interactive actions (workflows, dashboards), slash command registration, streaming message edits with periodic flush, Windows-compatible stdin reading via threading.
+**`serve` command (commands/serve.py):** The largest module (~2100 lines). Runs a persistent bot with bidirectional JSONL over stdin/stdout. Features: event forwarding, action dispatch (send/reply/edit/delete/stream/typing/reactions/threads/polls/channels/members/roles/DMs), voice actions (connect/speak/play/listen/etc.), interactive actions (workflows, dashboards), slash command registration, streaming message edits with periodic flush, Windows-compatible stdin reading via threading.
 
 ## Adding a New Command
 
@@ -59,6 +81,7 @@ No linter is configured. Commit style: conventional commits (`feat:`, `fix:`, `d
 3. Register in `src/discli/cli.py`
 4. Add tests in `tests/`
 5. Update `agents/discord-agent.md` with command reference
+6. Update the relevant `skills/*/SKILL.md` if the command appears there (7 skills ship in `skills/`)
 
 ## Docs Development
 
@@ -75,3 +98,5 @@ Docs live in `docs/` — Lito framework with `docs-config.json` for sidebar/them
 ## Release Process
 
 Bump version in `pyproject.toml` → commit → `git tag vX.Y.Z && git push origin vX.Y.Z` → CI runs tests (Python 3.10–3.13), builds, creates GitHub Release, publishes to PyPI.
+
+**There is no CI on pushes or PRs** — tests run only on `v*` tags, so run `uv run pytest tests/ -v` locally before pushing. The docs workflow is path-filtered to `docs/**` on `main`.

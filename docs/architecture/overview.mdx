@@ -25,7 +25,7 @@ flowchart LR
 2. Click parses arguments and global options (`--token`, `--json`, `--yes`, `--profile`).
 3. The active permission profile is checked to confirm the command is allowed.
 4. The bot token is resolved from flag, environment variable, or config file.
-5. One-shot commands authenticate an HTTP client and execute directly. Live commands connect a Gateway client with feature-specific intents.
+5. One-shot commands authenticate an HTTP client and execute directly. Live commands connect a Gateway client with feature-specific intents (see [Connection Model](/architecture/connection-model)).
 6. The Discord API processes the request.
 
 ## Module dependency graph
@@ -62,7 +62,7 @@ flowchart TD
 | **Security** | `security.py` | Permission profiles (allow/deny lists), `is_command_allowed()` enforcement, `audit_log()` JSONL writer, `RateLimiter` (token bucket), `check_user_permission()` for Discord-level permission checks, destructive action confirmation. |
 | **Config** | `config.py` | Reads/writes `~/.discli/config.json`. Handles token persistence and config merging. |
 | **Utils** | `utils.py` | `output()` respects the `--json` flag. Async resource resolvers translate names/IDs with cache-first lookups and REST fallbacks. |
-| **Serve** | `commands/serve.py` | Persistent bot mode. Reads JSONL from stdin, writes JSONL to stdout. ~1100 lines covering 25+ actions, event forwarding, slash command registration, and streaming with 1.5s flush intervals. |
+| **Serve** | `commands/serve.py` | Persistent bot mode. Reads JSONL from stdin, writes JSONL to stdout. ~2,200 lines covering 65+ actions, event forwarding, slash command registration, and streaming with 1.5s flush intervals. |
 
 ## Two operating modes
 
@@ -89,6 +89,11 @@ sequenceDiagram
 This approach is simple and stateless. It is subject to Discord HTTP rate limits, but it does not send Gateway `IDENTIFY`, consume session-start quota, or require unrelated Gateway intents.
 
 **Best for:** scripting, cron jobs, one-off operations, piping into other tools.
+
+`voice` commands are the exception to this mode: they need live voice state, so they open a
+Gateway session scoped to the `voice` feature and close it when the action finishes. See
+[Connection Model](/architecture/connection-model) for the full REST/Gateway split and the
+intents each feature requests.
 
 ### Mode 2: Persistent serve mode
 

@@ -18,6 +18,12 @@ These are less common issues that arise in specific scenarios. If you have hit s
 1. Enable **Server Members Intent** in the [Developer Portal](https://discord.com/developers/applications) under **Bot** > **Privileged Gateway Intents**
 2. For very large guilds (10,000+), Discord paginates member lists. discli handles pagination automatically, but the request may take several seconds
 
+This is one of the few places where a one-shot command still depends on a privileged intent.
+`discli member list` reaches Discord over HTTP and sends no intents, but the endpoint itself is
+gated server-side and returns `403` without Server Members. Lookups by numeric member ID are not
+gated and work with the intent disabled — see [Connection
+Model](/architecture/connection-model).
+
 <Callout type="warning">
 The Server Members Intent must be explicitly approved by Discord for bots in 100+ guilds. If your bot is in many servers, you will need to apply through the Developer Portal's verification process.
 </Callout>
@@ -150,6 +156,7 @@ An unfiltered self-mention loop can generate hundreds of messages in seconds, po
 
 - Run only **one** `discli serve` instance per bot token
 - CLI commands (`discli message send`, `discli member list`, etc.) are stateless REST calls and can run concurrently without issues
+- `discli listen` and `discli voice` commands *do* open gateway connections, so they contend for the same single-connection slot as `discli serve`. Do not run them against a token that already has a `serve` attached — see [Connection Model](/architecture/connection-model)
 - If you need multiple agents, create separate bot tokens for each
 
 ## Attachments and embeds
