@@ -88,12 +88,27 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-async def _drain(loop, ticks=1, interval=0.01):
-    loop.start()
-    await asyncio.sleep(interval * (ticks + 2))
+async def _until(predicate, *, timeout=3.0, step=0.005):
+    """Wait for a condition instead of a fixed sleep.
+
+    These loops are driven by the event loop's scheduler, so "sleep long enough
+    and hope" is flaky the moment the machine is busy -- which is exactly how
+    the first version of these tests failed. Poll for the outcome with a
+    generous ceiling instead.
+    """
+    waited = 0.0
+    while not predicate():
+        if waited >= timeout:
+            return False
+        await asyncio.sleep(step)
+        waited += step
+    return True
+
+
+async def _settle(loop):
     if loop.is_running():
         loop.cancel()
-    # Let the cancellation settle so the loop's after/error hooks run.
+    # Let cancellation and the error/after hooks run.
     await asyncio.sleep(0)
 
 
@@ -103,37 +118,50 @@ def test_flush_loop_calls_flush_while_the_stream_is_open():
     async def flush(stream_id):
         calls.append(stream_id)
 
-    streams = {"s1": {"done": False}}
-    loop = make_stream_flush_loop("s1", streams, flush, lambda e: None, interval=0.01)
-    _run(_drain(loop, ticks=2))
+    async def scenario():
+        streams = {"s1": {"done": False}}
+        loop = make_stream_flush_loop("s1", streams, flush, lambda e: None, interval=0.01)
+        loop.start()
+        reached = await _until(lambda: len(calls) >= 1)
+        await _settle(loop)
+        return reached
 
-    assert calls, "flush was never called"
+    assert _run(scenario()), "flush was never called"
     assert set(calls) == {"s1"}
 
 
 def test_flush_loop_stops_once_the_stream_is_done():
     calls = []
+    streams = {"s1": {"done": False}}
 
     async def flush(stream_id):
         calls.append(stream_id)
         streams["s1"]["done"] = True
 
-    streams = {"s1": {"done": False}}
-    loop = make_stream_flush_loop("s1", streams, flush, lambda e: None, interval=0.01)
-    _run(_drain(loop, ticks=4))
+    async def scenario():
+        loop = make_stream_flush_loop("s1", streams, flush, lambda e: None, interval=0.01)
+        loop.start()
+        stopped = await _until(lambda: not loop.is_running())
+        await _settle(loop)
+        return stopped
 
+    assert _run(scenario()), "loop kept running after the stream was done"
     # One flush, then the next tick sees done and stops.
     assert len(calls) == 1
-    assert not loop.is_running()
 
 
 def test_flush_loop_stops_when_the_stream_disappears():
     async def flush(stream_id):
         raise AssertionError("must not flush a stream that is gone")
 
-    loop = make_stream_flush_loop("gone", {}, flush, lambda e: None, interval=0.01)
-    _run(_drain(loop, ticks=2))
-    assert not loop.is_running()
+    async def scenario():
+        loop = make_stream_flush_loop("gone", {}, flush, lambda e: None, interval=0.01)
+        loop.start()
+        stopped = await _until(lambda: not loop.is_running())
+        await _settle(loop)
+        return stopped
+
+    assert _run(scenario()), "loop kept running for a stream that no longer exists"
 
 
 def test_flush_loop_reports_an_unexpected_failure():
@@ -148,11 +176,15 @@ def test_flush_loop_reports_an_unexpected_failure():
     async def flush(stream_id):
         raise RuntimeError("kaboom")
 
-    streams = {"s1": {"done": False}}
-    loop = make_stream_flush_loop("s1", streams, flush, emitted.append, interval=0.01)
-    _run(_drain(loop, ticks=3))
+    async def scenario():
+        streams = {"s1": {"done": False}}
+        loop = make_stream_flush_loop("s1", streams, flush, emitted.append, interval=0.01)
+        loop.start()
+        reported = await _until(lambda: bool(emitted))
+        await _settle(loop)
+        return reported
 
-    assert emitted, "a failing flush emitted nothing"
+    assert _run(scenario()), "a failing flush emitted nothing"
     event = emitted[0]
     assert event["type"] == "error"
     assert event["stream_id"] == "s1"
@@ -170,32 +202,41 @@ def test_flush_loop_does_not_flush_before_the_first_interval():
 
     async def scenario():
         streams = {"s1": {"done": False}}
-        loop = make_stream_flush_loop("s1", streams, flush, lambda e: None, interval=0.5)
+        # A whole second of headroom, checked after 50ms: a scheduling hiccup
+        # cannot turn "did not fire yet" into a false pass.
+        loop = make_stream_flush_loop("s1", streams, flush, lambda e: None, interval=1.0)
         loop.start()
-        # Well inside the first interval.
         await asyncio.sleep(0.05)
-        loop.cancel()
-        await asyncio.sleep(0)
+        await _settle(loop)
 
     _run(scenario())
     assert calls == []
 
 
 @pytest.mark.parametrize("transient", [OSError("net"), asyncio.TimeoutError()])
-def test_flush_loop_retries_transient_errors_instead_of_reporting_them(transient):
-    """tasks.Loop treats network-shaped errors as reconnectable, so they must
-    retry rather than land in the error handler and stop the loop."""
+def test_flush_loop_does_not_report_transient_errors(transient):
+    """tasks.Loop treats network-shaped errors as reconnectable, so they back
+    off and retry rather than landing in the error handler.
+
+    Asserted on the first failure only: reconnect backoff is randomised over
+    seconds, so waiting for the actual retry would make this slow and flaky
+    without testing anything more."""
     emitted = []
     calls = []
 
     async def flush(stream_id):
         calls.append(stream_id)
-        if len(calls) == 1:
-            raise transient
+        raise transient
 
-    streams = {"s1": {"done": False}}
-    loop = make_stream_flush_loop("s1", streams, flush, emitted.append, interval=0.01)
-    _run(_drain(loop, ticks=4))
+    async def scenario():
+        streams = {"s1": {"done": False}}
+        loop = make_stream_flush_loop("s1", streams, flush, emitted.append, interval=0.01)
+        loop.start()
+        fired = await _until(lambda: bool(calls))
+        # Give the error path a chance to run if it were going to.
+        await asyncio.sleep(0.05)
+        await _settle(loop)
+        return fired
 
-    assert len(calls) >= 1
+    assert _run(scenario()), "flush never ran"
     assert emitted == [], f"transient error should not be reported: {emitted}"
