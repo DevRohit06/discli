@@ -434,9 +434,10 @@ Notes from the build:
 Nothing from the original survey is unshipped. The remaining gaps were all found during
 the build rather than in the survey:
 
-- **`serve` has no test harness.** Its `visible_only` flag (Wave 2) and the `tasks.Loop`
-  flush conversion (Wave 3) are verified by reading, not by tests. The flush change is
-  specifically about failure handling, so it deserves one.
+- ~~**`serve` has no test harness.**~~ Closed 2026-08-25. `make_stream_flush_loop` and
+  `serialize_channels` were lifted to module level in `serve.py` and now carry 12 tests,
+  including the failure-reporting and first-interval behaviours that reading could not
+  confirm. The rest of `serve` remains closure-bound and untested.
 - **`security.py`'s `moderation` profile is still byte-identical to `full`**
   (`allowed: ["*"], denied: []`), while `skills/discord-moderation/SKILL.md` describes it
   as a restricted subset. Flagged in Wave 1, still unaddressed.
