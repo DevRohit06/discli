@@ -128,3 +128,100 @@ def test_moderation_keeps_voice_and_interact_in_scope():
     for path in ("voice join", "voice speak", "voice play", "voice move",
                  "interact modal", "interact workflow start", "interact dashboard create"):
         assert allowed(path, "moderation") is True, f"{path} should stay allowed"
+
+
+# ── enforcement, not just policy ───────────────────────────────────
+#
+# Found by running the real CLI: `is_command_allowed()` said "permission set"
+# was denied under moderation, and it was -- but nothing ever *called* the
+# check for that command. _check_permission() lived inside run_rest() /
+# run_gateway(), so every command that does not talk to Discord skipped it and
+# `discli --profile moderation permission set full` simply succeeded.
+
+
+LOCAL_COMMANDS = [
+    ["permission", "set", "full"],
+    ["audit", "clear"],
+    ["config", "set", "token", "x"],
+    ["schedule", "add", "x", "--action", "server list", "--every", "1h"],
+    ["schedule", "remove", "x"],
+    ["schedule", "run-now", "x"],
+    ["schedule", "run"],
+]
+
+
+@pytest.mark.parametrize("argv", LOCAL_COMMANDS, ids=lambda a: " ".join(a[:2]))
+def test_local_commands_are_actually_denied(argv, monkeypatch, tmp_path):
+    """These never reach Discord, so they must enforce the profile themselves."""
+    monkeypatch.setattr("discli.security.PERMISSIONS_PATH", tmp_path / "permissions.json")
+    monkeypatch.setattr("discli.commands.schedule.SCHEDULES_PATH", tmp_path / "schedules.json")
+    from click.testing import CliRunner
+
+    from discli.cli import main
+
+    result = CliRunner().invoke(main, ["--profile", "readonly", *argv])
+    assert result.exit_code != 0, f"{' '.join(argv)} was allowed under readonly"
+    assert "denied by" in result.output, result.output
+
+
+def test_permission_set_still_works_under_full(monkeypatch, tmp_path):
+    """The guard must not break the legitimate path."""
+    monkeypatch.setattr("discli.security.PERMISSIONS_PATH", tmp_path / "permissions.json")
+    from click.testing import CliRunner
+
+    from discli.cli import main
+
+    result = CliRunner().invoke(main, ["--profile", "full", "permission", "set", "chat"])
+    assert result.exit_code == 0, result.output
+    assert "set to: chat" in result.output
+
+
+# Commands whose own source shows no enforcement, with the reason each is fine.
+ENFORCEMENT_EXEMPT = {
+    # Delegate to a helper that calls run_rest().
+    "automod enable": "delegates to _set_enabled",
+    "automod disable": "delegates to _set_enabled",
+    # Read-only and local; allowed by every profile including readonly.
+    "audit show": "read-only local",
+    "config show": "read-only local",
+    "permission show": "read-only local",
+    "permission profiles": "read-only local",
+    "schedule list": "read-only local",
+    "doctor": "read-only local diagnostic",
+}
+
+
+def test_no_command_silently_skips_the_permission_check():
+    """Guard against the next local command forgetting to enforce.
+
+    A command that neither goes through run_rest/run_gateway nor calls
+    enforce_profile() is invisible to --profile entirely.
+    """
+    import inspect
+
+    from discli.cli import main
+
+    unguarded = []
+
+    def walk(cmd, prefix=""):
+        for name, sub in sorted(getattr(cmd, "commands", {}).items()):
+            path = f"{prefix}{name}"
+            if isinstance(sub, click.Group):
+                walk(sub, path + " ")
+                continue
+            try:
+                src = inspect.getsource(sub.callback)
+            except OSError:  # pragma: no cover - source always available here
+                continue
+            if any(m in src for m in ("run_rest", "run_gateway", "enforce_profile")):
+                continue
+            if path in ENFORCEMENT_EXEMPT:
+                continue
+            unguarded.append(path)
+
+    walk(main)
+    assert not unguarded, (
+        "these commands never consult the permission profile: "
+        + ", ".join(unguarded)
+        + " -- call enforce_profile(ctx) or add them to ENFORCEMENT_EXEMPT with a reason"
+    )

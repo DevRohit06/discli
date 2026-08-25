@@ -13,6 +13,8 @@ import discord
 @click.pass_context
 def listen_cmd(ctx, server, channel, events, ignore_bots):
     """Listen for real-time Discord events. Ctrl+C to stop."""
+    from discli.client import enforce_profile
+    enforce_profile(ctx)
     from discli.client import (
         build_gateway_intents,
         gateway_features_for_events,

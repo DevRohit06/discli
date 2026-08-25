@@ -192,3 +192,54 @@ async def test_resolve_channel_name_rejects_ambiguous_matches():
 
     with pytest.raises(click.ClickException, match="Multiple channels"):
         await resolve_channel(FakeClient(), "#general")
+
+
+@pytest.mark.asyncio
+async def test_resolve_guild_by_name_returns_a_complete_guild():
+    """GET /users/@me/guilds returns *partial* guilds: no roles, no owner_id.
+
+    Anything that then reads Member.guild_permissions or guild.get_role() off
+    one silently computes zero -- which made `doctor --server <name>` report
+    0 permissions for a bot that had them, and makes `--triggered-by` deny even
+    the server owner. resolve_guild must hand back the complete object.
+    """
+    full = type("FullGuild", (), {"id": 7, "name": "Test", "roles": ["@everyone", "mod"]})()
+
+    class PartialGuild:
+        id = 7
+        name = "Test"
+        roles = []          # the tell: a partial guild carries none
+        owner_id = None
+
+    class FakeClient:
+        fetched = []
+
+        async def fetch_guilds(self, *, limit):
+            yield PartialGuild()
+
+        async def fetch_guild(self, guild_id):
+            FakeClient.fetched.append(guild_id)
+            return full
+
+    resolved = await resolve_guild(FakeClient(), "Test")
+    assert resolved is full, "resolve_guild returned the partial guild"
+    assert FakeClient.fetched == [7]
+
+
+@pytest.mark.asyncio
+async def test_resolve_guild_by_name_does_not_refetch_a_complete_guild():
+    """A Gateway-cached guild already has its roles; don't spend a request."""
+    class CachedGuild:
+        id = 7
+        name = "Test"
+        roles = ["@everyone"]
+
+    cached = CachedGuild()
+
+    class FakeClient:
+        guilds = (cached,)
+
+        async def fetch_guild(self, guild_id):
+            raise AssertionError("must not re-fetch a guild that is already complete")
+
+    assert await resolve_guild(FakeClient(), "Test") is cached

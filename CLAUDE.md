@@ -62,6 +62,10 @@ Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_
 - Dashboard pages may set `layout: "v2"` for Components v2, but **every page of one dashboard must use the same layout**. Discord stamps `IS_COMPONENTS_V2` on the message at send time and it cannot be toggled, so paging between an embed page and a v2 page is impossible; `DashboardDefinition.__post_init__` rejects the mix. A v2 message also carries no content or embeds.
 - v2 buttons keep the same `dash:<id>:<key>` custom_id prefix as the embed layout, so interaction routing is identical across both.
 - The `moderation` permission profile is an **allowlist**, not `["*"]`. It used to be byte-identical to `full`, which made selecting it for least privilege a no-op. Voice and interact are in scope on purpose (commit `df6b606`) and must stay; `permission set` must stay out or the profile can promote itself to `full`. `tests/test_permission_profiles.py` pins both, plus the moderation-is-a-superset-of-readonly invariant.
+- The permission profile is enforced in `run_rest()`/`run_gateway()`, so a command that never calls Discord skips it entirely. Local commands (`permission set`, `audit clear`, `config set`, `schedule *`, `serve`, `listen`) must call `enforce_profile(ctx)` themselves. `test_no_command_silently_skips_the_permission_check` fails if a new one forgets.
+- `resolve_guild()` by **name** goes through `GET /users/@me/guilds`, which returns *partial* guilds with no roles and no `owner_id`. Anything reading `Member.guild_permissions` or `guild.get_role()` off one computes zero instead of failing, so `_ensure_full_guild()` re-fetches by ID. Do not remove it.
+- `fetch_channels()` does not populate the guild's channel cache either, so `channel.category` is always None on a REST client. `server_spec._channel_spec()` resolves the parent from `category_id` against the fetched list instead.
+- `cli.py` reconfigures stdout/stderr to UTF-8 at startup. Windows consoles and redirected pipes default to a legacy code page, and emoji in Discord channel names would otherwise raise `UnicodeEncodeError`.
 
 ## Architecture
 

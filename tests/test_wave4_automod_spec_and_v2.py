@@ -678,3 +678,74 @@ def test_dashboard_all_v2_pages_are_fine():
         DashboardPage(layout="v2", blocks=[{"type": "text", "content": "b"}]),
     ])
     assert definition.is_v2() is True
+
+
+# ── export: category resolution ────────────────────────────────────
+
+
+class _RestChannel(discord.TextChannel):
+    """A channel as fetch_channels() actually returns it.
+
+    The parent id is present, but `.category` resolves through
+    guild.get_channel() against a cache that fetch_channels never populates --
+    so on a REST-only client it is always None.
+    """
+
+    def __init__(self, channel_id, name, category_id=None):
+        self.id = channel_id
+        self.name = name
+        self.category_id = category_id
+        self.position = 0
+        self.topic = None
+        self.nsfw = False
+        self.slowmode_delay = 0
+        self._overwrites = []
+
+    @property
+    def type(self):
+        return discord.ChannelType.text
+
+    @property
+    def category(self):
+        return None  # the empty cache, reproduced
+
+    @property
+    def overwrites(self):
+        return {}
+
+
+class _RestCategory(discord.CategoryChannel):
+    def __init__(self, channel_id, name):
+        self.id = channel_id
+        self.name = name
+        self.position = 0
+
+    @property
+    def overwrites(self):
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_export_resolves_categories_without_the_guild_cache():
+    """Found by running against a real server: 10 of 21 channels had a parent
+    and every one exported as null, silently flattening the structure. apply
+    would then recreate them all at the top level."""
+    category = _RestCategory(100, "Text Channels")
+
+    class FakeGuild:
+        id = 1
+        name = "Test"
+        description = None
+        verification_level = SimpleNamespace(name="medium")
+
+        async def fetch_channels(self):
+            return [category, _RestChannel(10, "general", category_id=100),
+                    _RestChannel(11, "orphan", category_id=None)]
+
+        async def fetch_roles(self):
+            return []
+
+    spec = await spec_mod.build_spec(FakeGuild())
+    by_name = {c["name"]: c["category"] for c in spec["channels"]}
+    assert by_name["general"] == "Text Channels", "parent category was dropped"
+    assert by_name["orphan"] is None
