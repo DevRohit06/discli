@@ -111,6 +111,11 @@ _SHELL_OPERATORS = {"&&", "||", "|", ";", "&", ">", ">>", "<", "<<", "(", ")"}
 # Commands that never terminate, so they can never complete one scheduled run.
 _NON_TERMINATING = {"serve", "listen", "schedule"}
 
+# Commands that block waiting for a person. A scheduled fire runs in a worker
+# thread with nobody at the keyboard, so it waits forever on stdin the console
+# owns -- last_run is never written and the entry is wedged silently.
+_NEEDS_A_HUMAN = {"setup"}
+
 
 def parse_action(action: str) -> list[str]:
     """Split a discli command line and validate it against the command tree.
@@ -143,6 +148,11 @@ def parse_action(action: str) -> list[str]:
         raise click.ClickException(
             f"Actions do not run through a shell, so {shell_tokens[0]!r} would be passed "
             "as a literal argument. Use one discli command per schedule."
+        )
+
+    if argv[0] in _NEEDS_A_HUMAN:
+        raise click.ClickException(
+            f"'{argv[0]}' is interactive and cannot be used as a scheduled action."
         )
 
     if argv[0] in _NON_TERMINATING:

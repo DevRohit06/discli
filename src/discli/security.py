@@ -101,19 +101,40 @@ DEFAULT_PROFILES = {
 }
 
 
+def _load_permissions() -> dict:
+    """Read permissions.json, treating any unreadable state as "unset"."""
+    if not PERMISSIONS_PATH.exists():
+        return {}
+    try:
+        return json.loads(PERMISSIONS_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def get_profiles() -> dict:
+    """Every selectable profile: the built-ins plus any custom ones.
+
+    A custom profile sharing a built-in's name overrides it, which is the
+    behaviour get_active_profile() has always had.
+    """
+    profiles = dict(DEFAULT_PROFILES)
+    profiles.update(_load_permissions().get("profiles", {}))
+    return profiles
+
+
+def get_active_profile_name() -> str:
+    """Name of the profile currently in force.
+
+    get_active_profile() returns the profile *body*; callers that need the
+    label used to re-implement this read, and the copies drifted over
+    whether a custom profile counts.
+    """
+    return _load_permissions().get("active_profile", "full")
+
+
 def get_active_profile() -> dict:
     """Load the active permission profile."""
-    if not PERMISSIONS_PATH.exists():
-        return DEFAULT_PROFILES["full"]
-    try:
-        data = json.loads(PERMISSIONS_PATH.read_text())
-        profile_name = data.get("active_profile", "full")
-        custom_profiles = data.get("profiles", {})
-        if profile_name in custom_profiles:
-            return custom_profiles[profile_name]
-        return DEFAULT_PROFILES.get(profile_name, DEFAULT_PROFILES["full"])
-    except (json.JSONDecodeError, KeyError):
-        return DEFAULT_PROFILES["full"]
+    return get_profiles().get(get_active_profile_name(), DEFAULT_PROFILES["full"])
 
 
 def set_active_profile(profile_name: str) -> None:

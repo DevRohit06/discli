@@ -20,6 +20,8 @@ import sys
 
 import click
 
+GUILD_PREVIEW = 10
+
 NON_INTERACTIVE_HELP = """setup is interactive and needs a terminal.
 Non-interactive equivalents:
   discli config set token <TOKEN>
@@ -28,17 +30,26 @@ Non-interactive equivalents:
 
 
 def _is_interactive() -> bool:
-    """True when a human can answer a prompt.
+    """True when a human can both see a prompt and answer it.
+
+    Both streams matter. click writes prompts to stdout, so under
+    ``discli setup > setup.log`` stdin is still a tty and a stdin-only check
+    passes -- while every question disappears into the file and the terminal
+    looks hung. That is the failure this guard exists to prevent, so a
+    redirected stdout counts as non-interactive too.
 
     Wrapped in a function so tests can drive the wizard: click's CliRunner
     feeds stdin from a StringIO, which is never a tty, so an inline
-    ``sys.stdin.isatty()`` would make every prompt path untestable.
+    ``isatty()`` would make every prompt path untestable.
     """
-    try:
-        return sys.stdin is not None and sys.stdin.isatty()
-    except (AttributeError, ValueError):
-        # Detached or closed stdin (some CI harnesses) -- not interactive.
-        return False
+    for stream in (sys.stdin, sys.stdout):
+        try:
+            if stream is None or not stream.isatty():
+                return False
+        except (AttributeError, ValueError):
+            # Detached or closed stream (some CI harnesses) -- not a human.
+            return False
+    return True
 
 
 # Capability bundles offered at the invite step. Every name here must be a
@@ -57,7 +68,13 @@ BUNDLES: dict[str, tuple[str, list[str]]] = {
     "moderation": (
         "Delete and pin messages, kick, ban, timeout, rename members",
         [
-            "manage_messages", "pin_messages", "kick_members", "ban_members",
+            # bypass_slowmode and pin_messages were split out of
+            # manage_messages during 2026. Granting the legacy bit without
+            # them is the exact regression doctor's PERMISSION_SPLITS check
+            # reports, so the wizard would print an invite that fails its
+            # own step 5.
+            "manage_messages", "pin_messages", "bypass_slowmode",
+            "kick_members", "ban_members",
             "moderate_members", "manage_nicknames",
         ],
     ),
@@ -98,10 +115,9 @@ def _invite_url(client_id: int, permission_names: list[str]) -> str:
     """
     import discord
 
-    bits = discord.Permissions(**{name: True for name in permission_names}).value
-    return (
-        "https://discord.com/oauth2/authorize"
-        f"?client_id={client_id}&permissions={bits}&scope=bot+applications.commands"
+    return discord.utils.oauth_url(
+        client_id,
+        permissions=discord.Permissions(**{name: True for name in permission_names}),
     )
 
 
@@ -110,16 +126,25 @@ async def _identify(client) -> dict:
 
     Pasting the token of a *different* application is the likeliest mistake
     at this step, and it fails silently -- the login succeeds, and every
-    later command quietly targets the wrong bot. Showing the name and the
-    servers it is already in is what makes that visible.
-    """
-    from discli.utils import fetch_guilds
+    later command quietly targets the wrong bot. Showing the name and a few
+    of the servers it is already in is what makes that visible.
 
-    guilds = await fetch_guilds(client)
+    Capped deliberately: proving *which* bot this is does not justify
+    paginating every guild of a bot that is in hundreds, nor rendering all
+    their names into one wrapped line.
+    """
+    cached = list(getattr(client, "guilds", ()))
+    if cached:
+        names = [g.name for g in cached]
+    else:
+        # PREVIEW+1 so one extra proves there are more, without paying for
+        # the remaining pages.
+        names = [g.name async for g in client.fetch_guilds(limit=GUILD_PREVIEW + 1)]
     return {
         "id": client.user.id,
         "name": str(client.user),
-        "guilds": [g.name for g in guilds],
+        "guilds": names[:GUILD_PREVIEW],
+        "more": max(0, len(names) - GUILD_PREVIEW),
     }
 
 
@@ -170,11 +195,25 @@ def _step_token() -> dict:
         except Exception as exc:  # network, DNS, a proxy in the way
             click.echo(f"   Could not verify that token: {exc}", err=True)
         else:
-            where = ", ".join(info["guilds"]) or "no servers yet — see step 2"
+            where = ", ".join(info["guilds"]) or "no servers yet - see step 2"
+            if info["more"]:
+                # Exact when the client had a cache, "at least one" when it
+                # came from a bounded fetch -- so no number is claimed.
+                where += ", and more"
             click.echo(f"   OK - {info['name']} (ID: {info['id']}), in: {where}")
             if candidate != stored:
                 save_config({"token": candidate})
                 click.echo("   Saved to ~/.discli/config.json")
+                if env_token and candidate != env_token:
+                    # The note before the prompt is far away by now, and this
+                    # is the case where it decides the outcome: every command
+                    # will keep resolving the environment token, not this one.
+                    click.echo(
+                        "   Warning: DISCORD_BOT_TOKEN is set and still takes precedence "
+                        "over what was just saved.",
+                        err=True,
+                    )
+                    click.echo("   Unset it to use the saved token.", err=True)
             return info
         candidate = None
         if not attempts_left:
@@ -210,38 +249,24 @@ def _step_invite(info: dict) -> None:
     click.echo("     Server Members  - `discli member list` and name lookups")
 
 
-def _active_profile_name() -> str:
-    """Name of the profile currently in force.
-
-    security.get_active_profile() resolves to the profile *body*, and the
-    wizard needs the label to show what is already selected.
-    """
-    import json as json_mod
-
-    from discli.security import PERMISSIONS_PATH
-
-    if not PERMISSIONS_PATH.exists():
-        return "full"
-    try:
-        return json_mod.loads(PERMISSIONS_PATH.read_text()).get("active_profile", "full")
-    except (OSError, json_mod.JSONDecodeError):
-        return "full"
-
-
 def _step_profile() -> None:
     """Choose how much of discli this machine is allowed to drive."""
-    from discli.security import DEFAULT_PROFILES, set_active_profile
+    from discli.security import get_active_profile_name, get_profiles, set_active_profile
 
     click.echo()
     click.echo("3. Permission profile")
-    current = _active_profile_name()
-    for name, profile in DEFAULT_PROFILES.items():
+    current = get_active_profile_name()
+    # Built-ins plus any custom profile, so an active custom one is still a
+    # valid choice -- offering it as a default click.Choice would reject
+    # rules out keeping what is already configured.
+    profiles = get_profiles()
+    for name, profile in profiles.items():
         marker = "*" if name == current else " "
-        click.echo(f"   {marker} {name}: {profile['description']}")
+        click.echo(f"   {marker} {name}: {profile.get('description', 'custom profile')}")
 
     chosen = click.prompt(
         "   Profile",
-        type=click.Choice(list(DEFAULT_PROFILES)),
+        type=click.Choice(list(profiles)),
         default=current,
         show_choices=False,
     )
@@ -267,6 +292,23 @@ PROVIDER_KEYS = {
 }
 
 
+def _windows_shell() -> bool:
+    """True when the user's shell wants `setx` rather than `export`.
+
+    os.name is "nt" inside Git Bash and MSYS too -- the shell this repo's
+    own tooling runs in -- where setx is either absent or sets a variable
+    bash will never read. MSYSTEM/SHELL is the giveaway.
+    """
+    if os.environ.get("MSYSTEM") or os.environ.get("SHELL"):
+        return False
+    return os.name == "nt"
+
+
+def _configured(value: str | None, valid: list[str]) -> str:
+    """An already-exported provider, if it is one we can offer."""
+    return value if value in valid else "none"
+
+
 def _step_voice() -> None:
     """Point voice users at the environment variables their providers read.
 
@@ -279,26 +321,37 @@ def _step_voice() -> None:
     click.echo()
     click.echo("4. Voice (optional)")
 
-    if not _voice_extras_installed():
-        if not click.confirm("   Voice extras are not installed. Set voice up now?", default=False):
-            click.echo("   Skipped.")
-            return
-        click.echo("   Install them first:")
+    installed = _voice_extras_installed()
+    # The skip has to exist in both branches. Someone who installed the
+    # extras for `voice play` alone still never wants TTS or STT, and this
+    # step is advertised as optional.
+    question = (
+        "   Configure speech providers now?" if installed
+        else "   Voice extras are not installed. Set voice up now?"
+    )
+    if not click.confirm(question, default=False):
+        click.echo("   Skipped.")
+        return
+
+    if not installed:
+        click.echo("   Install the extras first:")
         click.echo("     pip install 'discord-cli-agent[voice,deepgram]'")
 
     if shutil.which("ffmpeg") is None:
         click.echo("   ffmpeg is not on PATH - `voice play` and TTS playback need it.")
 
+    # Default to what is already exported, so re-running the wizard keeps a
+    # working setup instead of offering to switch it off.
     tts = click.prompt(
         "   TTS provider (speech out)",
         type=click.Choice(TTS_PROVIDERS),
-        default="none",
+        default=_configured(os.environ.get("DISCLI_TTS"), TTS_PROVIDERS),
         show_choices=True,
     )
     stt = click.prompt(
         "   STT provider (speech in)",
         type=click.Choice(STT_PROVIDERS),
-        default="none",
+        default=_configured(os.environ.get("DISCLI_STT"), STT_PROVIDERS),
         show_choices=True,
     )
 
@@ -315,14 +368,20 @@ def _step_voice() -> None:
     already = sorted(k for k in needed if os.environ.get(k))
     assignments += [(k, "<your-key>") for k in sorted(needed - set(already))]
 
-    click.echo("   Add these to your shell profile:")
-    for line in _export_lines(assignments, windows=os.name == "nt"):
+    windows = _windows_shell()
+    if windows:
+        # setx writes the persistent environment and explicitly does NOT
+        # affect the current console, so "add to your profile" is wrong.
+        click.echo("   Run these once, then open a new terminal:")
+    else:
+        click.echo("   Add these to your shell profile:")
+    for line in _export_lines(assignments, windows=windows):
         click.echo(f"     {line}")
     if already:
         click.echo(f"   Already set: {', '.join(already)}")
 
 
-def _step_verify() -> None:
+def _step_verify() -> int:
     """Close with doctor's own report rather than a second opinion."""
     from discli.commands.doctor import _format_text, _gather
 
@@ -334,6 +393,7 @@ def _step_verify() -> None:
         click.echo(f"   {failures} problem(s) above. Re-run `discli doctor` after fixing.")
     else:
         click.echo("   Ready. Try: discli server list")
+    return failures
 
 
 @click.command("setup")
@@ -370,4 +430,7 @@ def setup_cmd(ctx):
     _step_invite(info)
     _step_profile()
     _step_voice()
-    _step_verify()
+    # Exit like doctor does. Reporting failures and still exiting 0 makes
+    # `discli setup && echo ready` print ready for a broken install.
+    if _step_verify():
+        ctx.exit(1)

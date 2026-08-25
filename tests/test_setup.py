@@ -14,6 +14,21 @@ from click.testing import CliRunner
 from discli.cli import main
 
 
+@pytest.fixture(autouse=True)
+def _isolate_profile(monkeypatch, tmp_path):
+    """Keep an ambient permission profile out of every test in this file.
+
+    enforce_profile() consults DISCLI_PROFILE (an envvar on the root group)
+    and ~/.discli/permissions.json, and it denies `setup` before the
+    terminal check runs. On a machine with either set, most of these tests
+    fail with "denied by the readonly permission profile" -- a reason that
+    has nothing to do with what they assert. Same class of leakage that
+    conftest's no_network fixture exists to prevent.
+    """
+    monkeypatch.delenv("DISCLI_PROFILE", raising=False)
+    monkeypatch.setattr("discli.security.PERMISSIONS_PATH", tmp_path / "permissions.json")
+
+
 def test_json_mode_refuses_instead_of_prompting():
     """`--json` promises a parseable payload; a prompt would deadlock a
     caller that is piping us. Refuse up front and name the alternatives."""
@@ -81,7 +96,7 @@ async def test_identify_reports_the_bot_and_the_servers_it_is_in():
 
     info = await _identify(client)
 
-    assert info == {"id": 42, "name": "testbot", "guilds": ["Guild A", "Guild B"]}
+    assert info == {"id": 42, "name": "testbot", "guilds": ["Guild A", "Guild B"], "more": 0}
 
 
 # ── step 2: invite URL ─────────────────────────────────────────────
@@ -185,16 +200,20 @@ def _login_returns(info):
 
 
 @pytest.fixture
-def wizard(monkeypatch, tmp_path):
+def wizard(monkeypatch):
     """A wizard with a terminal, an empty config, and a stubbed login."""
     monkeypatch.setattr("discli.commands.setup._is_interactive", lambda: True)
     monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
-    monkeypatch.setattr("discli.config.load_config", lambda *a, **k: {})
-    # Otherwise the profile step reads the developer's own ~/.discli and the
-    # prompt default varies by machine.
-    monkeypatch.setattr("discli.security.PERMISSIONS_PATH", tmp_path / "permissions.json")
 
     saved = {}
+    # Store-backed rather than a black hole: step 5 runs doctor's real token
+    # check, which reads load_config(), so a save that went nowhere would
+    # make the wizard report a failure it had just fixed.
+    store = lambda *a, **k: dict(saved)
+    monkeypatch.setattr("discli.config.load_config", store)
+    # doctor.py binds load_config at import, so patching discli.config alone
+    # never reaches step 5's token check.
+    monkeypatch.setattr("discli.commands.doctor.load_config", store)
     monkeypatch.setattr("discli.config.save_config", lambda data, *a, **k: saved.update(data))
     monkeypatch.setattr("discli.security.set_active_profile", lambda name: saved.update(profile=name))
     # Without this the voice step branches on whether the developer happens
@@ -292,11 +311,213 @@ def test_choosing_a_tts_provider_names_the_variables_to_export(wizard, monkeypat
     which variables to set."""
     monkeypatch.setattr("discli.commands.doctor._voice_extras_installed", lambda: True)
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    # Claiming the extras are installed also makes doctor run the real VOICE
+    # section, which fails on a machine without libopus. This test is about
+    # step 4, so step 5 is stubbed out rather than asserted around.
+    monkeypatch.setattr("discli.commands.doctor._gather", lambda server=None: [])
 
     result = CliRunner().invoke(
-        main, ["setup"], input="tok-abc\ny\nn\nn\nn\nchat\nelevenlabs\nnone\n"
+        main, ["setup"], input="tok-abc\ny\nn\nn\nn\nchat\ny\nelevenlabs\nnone\n"
     )
 
     assert result.exit_code == 0, result.output
     assert "DISCLI_TTS" in result.output
     assert "ELEVENLABS_API_KEY" in result.output
+
+
+def test_the_generated_invite_passes_doctors_own_permission_split_check():
+    """A bot invited with `manage_messages` but not `bypass_slowmode` holds
+    the old bit and not the split-out one, which is exactly the regression
+    doctor reports. The wizard prints an invite URL and then, at step 5,
+    runs the check that would condemn it -- so any bundle granting a legacy
+    permission has to grant what Discord split out of it too.
+    """
+    import discord
+
+    from discli.commands.doctor import PERMISSION_SPLITS
+    from discli.commands.setup import BUNDLES
+
+    granted = [name for _desc, names in BUNDLES.values() for name in names]
+    perms = discord.Permissions(**{name: True for name in granted})
+
+    regressions = [
+        new for new, legacy, _since, _affected in PERMISSION_SPLITS
+        if getattr(perms, legacy, False) and not getattr(perms, new, False)
+    ]
+    assert regressions == [], (
+        "granting every bundle still trips doctor's split check for: "
+        + ", ".join(regressions)
+    )
+
+
+def test_an_active_custom_profile_stays_selectable(monkeypatch, tmp_path, wizard):
+    """security.get_active_profile() supports a `profiles` map of custom
+    profiles, so the wizard has to as well. Offering a default that is not
+    one of the click.Choice values means pressing Enter is rejected -- and
+    with show_choices off, the valid set is never even shown.
+    """
+    import json
+
+    perms = tmp_path / "permissions.json"
+    perms.write_text(json.dumps({
+        "active_profile": "mycustom",
+        "profiles": {"mycustom": {"description": "custom", "allowed": ["*"], "denied": []}},
+    }))
+    monkeypatch.setattr("discli.security.PERMISSIONS_PATH", perms)
+
+    # Empty answer at the profile prompt = keep what is already active.
+    result = CliRunner().invoke(main, ["setup"], input="tok-abc\ny\nn\nn\nn\n\nn\n")
+
+    assert result.exit_code == 0, result.output
+    assert wizard["profile"] == "mycustom"
+    assert "is not one of" not in result.output
+
+
+# ── exit status and stream detection ───────────────────────────────
+
+
+class _Stream:
+    def __init__(self, tty):
+        self._tty = tty
+
+    def isatty(self):
+        return self._tty
+
+
+def test_a_redirected_stdout_is_not_interactive(monkeypatch):
+    """`discli setup > log` keeps a tty on stdin, so a stdin-only check
+    passes -- and then click writes every prompt into the file. The user
+    sees a silent hung terminal, which is the exact failure the guard is
+    supposed to prevent."""
+    from discli.commands import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.sys, "stdin", _Stream(True))
+    monkeypatch.setattr(setup_mod.sys, "stdout", _Stream(False))
+
+    assert setup_mod._is_interactive() is False
+
+
+def test_two_terminals_are_interactive(monkeypatch):
+    from discli.commands import setup as setup_mod
+
+    monkeypatch.setattr(setup_mod.sys, "stdin", _Stream(True))
+    monkeypatch.setattr(setup_mod.sys, "stdout", _Stream(True))
+
+    assert setup_mod._is_interactive() is True
+
+
+def test_the_wizard_exits_nonzero_when_its_own_report_shows_failures(wizard, monkeypatch):
+    """`discli doctor` exits 1 on failures. If setup prints the same report
+    and exits 0, `discli setup && echo ready` says ready for a broken
+    install, and any onboarding script keying on $? reads success."""
+    from discli.commands.doctor import Check, Section
+
+    monkeypatch.setattr(
+        "discli.commands.doctor._gather",
+        lambda server=None: [Section("CORE", [Check("ffmpeg", False, "not on PATH")])],
+    )
+
+    result = CliRunner().invoke(main, ["setup"], input=WIZARD_INPUT)
+
+    assert result.exit_code == 1, result.output
+
+
+def test_the_wizard_exits_zero_when_everything_checks_out(wizard):
+    result = CliRunner().invoke(main, ["setup"], input=WIZARD_INPUT)
+
+    assert result.exit_code == 0, result.output
+
+
+def test_the_voice_step_defaults_to_the_providers_already_configured(wizard, monkeypatch):
+    """README promises re-running is safe because "every step shows what is
+    already configured and offers to keep it". Hardcoding `none` makes step 4
+    offer to un-configure a working setup."""
+    monkeypatch.setenv("DISCLI_TTS", "elevenlabs")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "sk-live")
+
+    # ... profile, then yes to voice, then Enter through both providers.
+    result = CliRunner().invoke(main, ["setup"], input="tok-abc\ny\nn\nn\nn\nchat\ny\n\n\n")
+
+    assert result.exit_code == 0, result.output
+    assert "DISCLI_TTS=elevenlabs" in result.output or 'DISCLI_TTS "elevenlabs"' in result.output
+
+
+def test_voice_can_be_declined_even_when_the_extras_are_installed(wizard, monkeypatch):
+    """The skip only existed when the extras were missing, so someone who
+    installed them for `voice play` alone was marched through two provider
+    prompts they never wanted. The step is titled "(optional)"."""
+    monkeypatch.setattr("discli.commands.doctor._voice_extras_installed", lambda: True)
+    monkeypatch.setattr("discli.commands.doctor._gather", lambda server=None: [])
+
+    result = CliRunner().invoke(main, ["setup"], input=WIZARD_INPUT)
+
+    assert result.exit_code == 0, result.output
+    assert "TTS provider" not in result.output
+
+
+def test_saving_a_token_while_the_env_var_shadows_it_says_so(wizard, monkeypatch):
+    """cli.py resolves --token from DISCORD_BOT_TOKEN before falling back to
+    config.json. Saving a different token there and reporting OK leaves the
+    user certain they switched bots when every command still uses the old
+    one."""
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "env-token")
+
+    # Decline the env token, paste a different one.
+    result = CliRunner().invoke(
+        main, ["setup"], input="n\npasted-token\ny\nn\nn\nn\nchat\nn\n"
+    )
+
+    assert wizard["token"] == "pasted-token"
+    assert "still takes precedence" in result.output
+
+
+@pytest.mark.asyncio
+async def test_identify_caps_the_guild_list_it_reports():
+    """The step only needs to prove *which* bot the token belongs to. A bot
+    in 500 guilds should not pay for five paginated requests, nor render 500
+    names into one wrapped line, to establish that."""
+    from discli.commands.setup import _identify
+
+    client = type("C", (), {})()
+    client.user = _FakeUser(42, "testbot")
+    client.guilds = [_FakeGuild(f"G{i}") for i in range(12)]
+
+    info = await _identify(client)
+
+    assert len(info["guilds"]) == 10
+    assert info["more"] == 2
+
+
+def test_git_bash_on_windows_gets_export_not_setx(monkeypatch):
+    """os.name is "nt" inside Git Bash and MSYS -- the shell this repo's own
+    tooling runs in -- where setx is either missing or sets a variable bash
+    will never read."""
+    from discli.commands.setup import _windows_shell
+
+    monkeypatch.setattr("discli.commands.setup.os.name", "nt")
+    monkeypatch.setenv("MSYSTEM", "MINGW64")
+
+    assert _windows_shell() is False
+
+
+def test_a_plain_windows_console_gets_setx(monkeypatch):
+    from discli.commands.setup import _windows_shell
+
+    monkeypatch.setattr("discli.commands.setup.os.name", "nt")
+    monkeypatch.delenv("MSYSTEM", raising=False)
+    monkeypatch.delenv("SHELL", raising=False)
+
+    assert _windows_shell() is True
+
+
+def test_every_permission_discli_uses_is_offered_by_some_bundle():
+    """The other direction of the same invariant. Without it, a permission
+    added to doctor's map is never offered by the wizard, so `setup` quietly
+    stops producing an invite that covers every command."""
+    from discli.commands.doctor import DISCLI_PERMISSIONS
+    from discli.commands.setup import BUNDLES
+
+    offered = {name for _desc, names in BUNDLES.values() for name in names}
+    missing = sorted(set(DISCLI_PERMISSIONS) - offered)
+
+    assert missing == [], f"no bundle offers: {', '.join(missing)}"

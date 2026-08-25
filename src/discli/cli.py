@@ -107,17 +107,9 @@ def permission_group():
 def permission_show(ctx):
     """Show the active permission profile."""
     import json as json_mod
-    from discli.security import get_active_profile, DEFAULT_PROFILES, PERMISSIONS_PATH
+    from discli.security import get_active_profile, get_active_profile_name
 
-    if PERMISSIONS_PATH.exists():
-        try:
-            data = json_mod.loads(PERMISSIONS_PATH.read_text())
-            active = data.get("active_profile", "full")
-        except Exception:
-            active = "full"
-    else:
-        active = "full"
-
+    active = get_active_profile_name()
     profile = get_active_profile()
     use_json = ctx.obj.get("use_json", False)
     result = {"active_profile": active, **profile}

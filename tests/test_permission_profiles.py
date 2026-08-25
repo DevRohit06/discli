@@ -299,3 +299,30 @@ def test_denied_destructive_command_does_not_prompt_first(monkeypatch, tmp_path)
     result = CliRunner().invoke(main, ["--profile", "readonly", "member", "kick", "1", "2"])
     assert "Destructive action" not in result.output, "prompted before checking the profile"
     assert "denied by" in result.output
+
+
+def test_get_active_profile_name_reports_a_custom_profile(monkeypatch, tmp_path):
+    """The name and the body were read by three separate copies of the same
+    parse -- cli.py's permission_show, setup's prompt default, and
+    get_active_profile. They had already diverged over whether the
+    `profiles` map counts."""
+    import json
+
+    from discli import security
+
+    path = tmp_path / "permissions.json"
+    path.write_text(json.dumps({
+        "active_profile": "mycustom",
+        "profiles": {"mycustom": {"description": "c", "allowed": ["*"], "denied": []}},
+    }))
+    monkeypatch.setattr(security, "PERMISSIONS_PATH", path)
+
+    assert security.get_active_profile_name() == "mycustom"
+
+
+def test_get_active_profile_name_defaults_to_full(monkeypatch, tmp_path):
+    from discli import security
+
+    monkeypatch.setattr(security, "PERMISSIONS_PATH", tmp_path / "missing.json")
+
+    assert security.get_active_profile_name() == "full"
