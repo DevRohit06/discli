@@ -123,6 +123,8 @@ CODE_BLOCK_FILE_THRESHOLD = 800
 def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
               status, activity, activity_text):
     """Start a persistent bot process with bidirectional JSONL communication."""
+    from discli.client import enforce_profile
+    enforce_profile(ctx)
     from discli.client import (
         build_gateway_intents,
         gateway_features_for_events,

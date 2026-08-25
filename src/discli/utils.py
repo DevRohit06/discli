@@ -59,6 +59,26 @@ def _unique_match(matches: list[Any], kind: str, identifier: str):
     return matches[0]
 
 
+async def _ensure_full_guild(client, guild):
+    """Guarantee a guild carries its roles, re-fetching it by ID if not.
+
+    ``GET /users/@me/guilds`` -- what fetch_guilds() calls, and the only way to
+    find a guild by name -- returns *partial* guild objects: no roles, no
+    owner_id. Anything that then reads ``Member.guild_permissions`` or
+    ``guild.get_role()`` off one silently computes zero rather than failing,
+    so the caller gets a confident wrong answer.
+
+    Costs one extra request, and only on the name path: guilds resolved by ID
+    or served from the Gateway cache already have their roles.
+    """
+    if getattr(guild, "roles", None):
+        return guild
+    fetch_guild = getattr(client, "fetch_guild", None)
+    if fetch_guild is None:
+        return guild
+    return await fetch_guild(guild.id)
+
+
 async def resolve_guild(client, identifier: str) -> discord.Guild:
     """Resolve a guild by ID or name, preferring Gateway cache state."""
     try:
@@ -78,14 +98,16 @@ async def resolve_guild(client, identifier: str) -> discord.Guild:
         if guild.name.casefold() == identifier.casefold()
     ]
     if cached_matches:
-        return _unique_match(cached_matches, "Server", identifier)
+        return await _ensure_full_guild(
+            client, _unique_match(cached_matches, "Server", identifier)
+        )
 
     matches = [
         guild
         async for guild in client.fetch_guilds(limit=None)
         if guild.name.casefold() == identifier.casefold()
     ]
-    return _unique_match(matches, "Server", identifier)
+    return await _ensure_full_guild(client, _unique_match(matches, "Server", identifier))
 
 
 async def resolve_channel(client, identifier: str):

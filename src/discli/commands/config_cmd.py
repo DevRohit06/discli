@@ -13,6 +13,8 @@ def config_group():
 @click.argument("value")
 def config_set(key, value):
     """Set a config value (e.g. discli config set token YOUR_TOKEN)."""
+    from discli.client import enforce_profile
+    enforce_profile(click.get_current_context())
     save_config({key: value})
     click.echo(f"Set {key}.")
 

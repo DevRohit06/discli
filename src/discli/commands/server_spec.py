@@ -126,12 +126,17 @@ def _role_spec(role: discord.Role) -> dict:
     }
 
 
-def _channel_spec(channel) -> dict:
-    category = getattr(channel, "category", None)
+def _channel_spec(channel, categories_by_id: dict) -> dict:
+    # Resolved from the channel list we already fetched, not `channel.category`.
+    # That property goes through guild.get_channel(), and fetch_channels() never
+    # populates the guild's channel cache -- so on a REST-only client it is
+    # always None and every channel exports as top-level, silently flattening
+    # the server. Caught by running this against a real guild.
+    parent = categories_by_id.get(getattr(channel, "category_id", None))
     return {
         "name": channel.name,
         "type": channel.type.name,
-        "category": category.name if category is not None else None,
+        "category": parent.name if parent is not None else None,
         "topic": getattr(channel, "topic", None),
         "slowmode": getattr(channel, "slowmode_delay", 0) or 0,
         "nsfw": bool(getattr(channel, "nsfw", False)),
@@ -143,6 +148,9 @@ def _channel_spec(channel) -> dict:
 async def build_spec(guild) -> dict:
     channels = await guild.fetch_channels()
     roles = await guild.fetch_roles()
+    categories_by_id = {
+        c.id: c for c in channels if isinstance(c, discord.CategoryChannel)
+    }
 
     return {
         "version": SPEC_VERSION,
@@ -163,7 +171,8 @@ async def build_spec(guild) -> dict:
             if isinstance(c, discord.CategoryChannel)
         ],
         "channels": [
-            _channel_spec(c) for c in sorted(channels, key=lambda c: c.position)
+            _channel_spec(c, categories_by_id)
+            for c in sorted(channels, key=lambda c: c.position)
             if not isinstance(c, discord.CategoryChannel)
         ],
     }

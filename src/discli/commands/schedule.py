@@ -228,6 +228,8 @@ def schedule_group():
 @click.pass_context
 def schedule_add(ctx, name, action, at_time, tz, every, count, force):
     """Add a schedule. Give either --time or --every."""
+    from discli.client import enforce_profile
+    enforce_profile(ctx)
     from discli.utils import output
 
     if bool(at_time) == bool(every):
@@ -285,6 +287,8 @@ def schedule_list(ctx):
 @click.pass_context
 def schedule_remove(ctx, name):
     """Remove a schedule."""
+    from discli.client import enforce_profile
+    enforce_profile(ctx)
     from discli.security import confirm_destructive
     from discli.utils import output
 
@@ -302,6 +306,8 @@ def schedule_remove(ctx, name):
 @click.pass_context
 def schedule_run_now(ctx, name):
     """Run a schedule's action once, immediately."""
+    from discli.client import enforce_profile
+    enforce_profile(ctx)
     from discli.utils import output
 
     schedules = load_schedules()
@@ -330,6 +336,8 @@ def schedule_run(ctx, names):
     their timezone, --count is respected, and transient failures retry with
     exponential backoff instead of killing the schedule.
     """
+    from discli.client import enforce_profile
+    enforce_profile(ctx)
     from discord.ext import tasks
 
     schedules = [s for s in load_schedules() if s.get("enabled", True)]

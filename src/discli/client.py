@@ -124,6 +124,17 @@ def _check_permission(ctx: click.Context) -> None:
         )
 
 
+def enforce_profile(ctx: click.Context) -> None:
+    """Apply the active permission profile to a command that never calls Discord.
+
+    The check used to live only inside run_rest()/run_gateway(), so every
+    local command skipped it -- `discli --profile moderation permission set
+    full` simply succeeded, which defeated the entire point of a restricted
+    profile. Commands that do not reach the API must call this themselves.
+    """
+    _check_permission(ctx)
+
+
 def _run(ctx: click.Context, operation: Coroutine[Any, Any, Any]) -> Any:
     try:
         return asyncio.run(operation)

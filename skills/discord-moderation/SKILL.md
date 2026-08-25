@@ -230,7 +230,7 @@ async def on_slash_command(event: dict, send) -> None:
 
 discli has built-in security that complements moderation bots:
 
-- **Permission profiles**: `discli --profile moderation` restricts commands to moderation-safe subset
+- **Permission profiles**: `discli --profile moderation` restricts commands to a moderation-safe subset: read, moderate members and messages, manage AutoMod, lock channels, plus voice and interactive components. It cannot create or delete channels and roles, edit server settings, manage webhooks or emoji, schedule commands, or change discli's own permission profile.
 - **Audit log**: All destructive actions logged to `~/.discli/audit.log`
 - **Rate limiter**: Built-in 5 calls/5s rate limit on destructive actions
 - **Confirmation prompts**: Kick/ban/delete require `--yes` flag

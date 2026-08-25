@@ -1,3 +1,5 @@
+import sys
+
 import click
 
 from discli.config import load_config
@@ -25,6 +27,28 @@ from discli.commands.interact import interact_group
 from discli.commands.doctor import doctor_cmd
 
 
+def _force_utf8_output() -> None:
+    """Make stdout/stderr able to carry Discord content.
+
+    Windows consoles default to a legacy code page -- cp1252 here -- and so
+    does a redirected pipe. Emoji are ordinary in Discord channel names, so
+    `discli channel list` on such a console dies with UnicodeEncodeError, and
+    `--json` piped to a file writes the wrong bytes. UTF-8 is correct for both
+    a file and a parser; errors="replace" means a console that still cannot
+    render a glyph shows "?" rather than taking the command down with it.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError, AttributeError):
+            # A wrapped or detached stream (pytest, some CI harnesses) cannot
+            # be reconfigured; leaving it alone is better than failing to start.
+            pass
+
+
 @click.group()
 @click.option("--token", envvar="DISCORD_BOT_TOKEN", default=None, help="Discord bot token.")
 @click.option("--json", "use_json", is_flag=True, default=False, help="Output as JSON.")
@@ -35,6 +59,7 @@ from discli.commands.doctor import doctor_cmd
 @click.pass_context
 def main(ctx, token, use_json, yes, profile):
     """discli — Discord CLI for AI agents."""
+    _force_utf8_output()
     ctx.ensure_object(dict)
     if token is None:
         config = load_config()
@@ -108,6 +133,8 @@ def permission_show(ctx):
 @click.argument("profile", type=click.Choice(["full", "chat", "readonly", "moderation"]))
 def permission_set(profile):
     """Set the active permission profile."""
+    from discli.client import enforce_profile
+    enforce_profile(click.get_current_context())
     from discli.security import set_active_profile, DEFAULT_PROFILES
     set_active_profile(profile)
     desc = DEFAULT_PROFILES.get(profile, {}).get("description", "")
@@ -166,6 +193,8 @@ def audit_show(ctx, limit):
 @audit_group.command("clear")
 def audit_clear():
     """Clear the audit log."""
+    from discli.client import enforce_profile
+    enforce_profile(click.get_current_context())
     from discli.security import AUDIT_LOG_PATH
     if AUDIT_LOG_PATH.exists():
         AUDIT_LOG_PATH.unlink()
