@@ -72,10 +72,26 @@ class WorkflowState:
 
 @dataclass
 class DashboardPage:
-    """A single page of a dashboard embed."""
+    """A single page of a dashboard.
+
+    Two layouts. The default builds an embed plus a row of buttons, which is
+    what every existing spec file describes. Setting ``layout="v2"`` instead
+    renders Discord's Components v2 (containers, sections, media galleries,
+    separators) from ``blocks``.
+
+    The choice is per page and opt-in: a page without ``layout`` renders
+    exactly as it always has, so existing specs and `serve` consumers are
+    untouched. The two cannot be mixed on one page -- Discord rejects a
+    Components v2 message that also carries content or embeds.
+    """
 
     embed: dict[str, Any] = field(default_factory=dict)
     components: list[dict[str, Any]] = field(default_factory=list)
+    layout: str = "embed"
+    blocks: list[dict[str, Any]] = field(default_factory=list)
+
+    def is_v2(self) -> bool:
+        return self.layout == "v2"
 
 
 @dataclass
@@ -87,6 +103,22 @@ class DashboardDefinition:
     refresh_interval: int = 0  # seconds; 0 = no auto-refresh
     components: list[dict[str, Any]] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        # Discord stamps IS_COMPONENTS_V2 on a message when it is sent and the
+        # flag cannot be toggled afterwards, so a dashboard cannot page from an
+        # embed layout into a v2 one. Catch that here rather than at the edit
+        # that fails halfway through a user's navigation.
+        layouts = {page.layout for page in self.pages}
+        if len(layouts) > 1:
+            raise InteractError(
+                "All pages of a dashboard must use the same layout; got "
+                f"{', '.join(sorted(layouts))}. Discord fixes the Components v2 "
+                "flag when the message is created, so pages cannot switch."
+            )
+
+    def is_v2(self) -> bool:
+        return bool(self.pages) and self.pages[0].is_v2()
+
 
 @dataclass
 class DashboardState:
@@ -97,6 +129,126 @@ class DashboardState:
     message_id: int | None = None
     current_page: int = 0
     data: dict[str, Any] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Components v2 block rendering
+# ---------------------------------------------------------------------------
+
+V2_BLOCK_TYPES = ("container", "text", "section", "separator", "gallery", "buttons")
+
+_BUTTON_STYLES = {
+    "primary": discord.ButtonStyle.primary,
+    "secondary": discord.ButtonStyle.secondary,
+    "success": discord.ButtonStyle.success,
+    "danger": discord.ButtonStyle.danger,
+    "link": discord.ButtonStyle.link,
+}
+
+_SEPARATOR_SPACING = {
+    "small": discord.SeparatorSpacing.small,
+    "large": discord.SeparatorSpacing.large,
+}
+
+
+def _v2_button(spec: dict[str, Any], dashboard_id: str) -> discord.ui.Button:
+    """Build a button, routing its custom_id the same way the embed layout does.
+
+    Keeping the ``dash:<id>:<key>`` prefix means handle_dashboard_interaction
+    works identically for both layouts -- v2 changes how a page looks, not how
+    its interactions are routed.
+    """
+    style = _BUTTON_STYLES.get(spec.get("style", "primary"), discord.ButtonStyle.primary)
+    if style is discord.ButtonStyle.link:
+        url = spec.get("url")
+        if not url:
+            raise InteractError("A link button needs a 'url'.")
+        return discord.ui.Button(label=spec.get("label", "Open"), style=style, url=url)
+    key = spec.get("custom_id", spec.get("label", "btn"))
+    return discord.ui.Button(
+        label=spec.get("label", "Button"),
+        style=style,
+        custom_id=f"dash:{dashboard_id}:{key}",
+        disabled=bool(spec.get("disabled", False)),
+    )
+
+
+def build_v2_block(spec: dict[str, Any], dashboard_id: str):
+    """Turn one spec block into a discord.ui item."""
+    kind = spec.get("type")
+    if kind == "text":
+        content = spec.get("content")
+        if not content:
+            raise InteractError("A 'text' block needs 'content'.")
+        return discord.ui.TextDisplay(content)
+
+    if kind == "separator":
+        return discord.ui.Separator(
+            visible=bool(spec.get("visible", True)),
+            spacing=_SEPARATOR_SPACING.get(spec.get("spacing", "small"), discord.SeparatorSpacing.small),
+        )
+
+    if kind == "gallery":
+        items = spec.get("items") or []
+        if not items:
+            raise InteractError("A 'gallery' block needs at least one item in 'items'.")
+        return discord.ui.MediaGallery(*[
+            discord.MediaGalleryItem(
+                item["url"] if isinstance(item, dict) else item,
+                description=(item.get("description") if isinstance(item, dict) else None),
+            )
+            for item in items
+        ])
+
+    if kind == "section":
+        content = spec.get("content")
+        if not content:
+            raise InteractError("A 'section' block needs 'content'.")
+        # Section requires an accessory; a thumbnail is the natural default,
+        # and a button is the other thing Discord allows there.
+        if spec.get("button"):
+            accessory = _v2_button(spec["button"], dashboard_id)
+        elif spec.get("thumbnail"):
+            accessory = discord.ui.Thumbnail(spec["thumbnail"])
+        else:
+            raise InteractError("A 'section' block needs either 'thumbnail' or 'button'.")
+        lines = content if isinstance(content, list) else [content]
+        return discord.ui.Section(*lines, accessory=accessory)
+
+    if kind == "buttons":
+        buttons = spec.get("items") or []
+        if not buttons:
+            raise InteractError("A 'buttons' block needs at least one item in 'items'.")
+        return discord.ui.ActionRow(*[_v2_button(b, dashboard_id) for b in buttons])
+
+    if kind == "container":
+        children = [build_v2_block(child, dashboard_id) for child in spec.get("children") or []]
+        if not children:
+            raise InteractError("A 'container' block needs at least one child.")
+        kwargs: dict[str, Any] = {"spoiler": bool(spec.get("spoiler", False))}
+        accent = spec.get("accent")
+        if accent is not None:
+            try:
+                kwargs["accent_colour"] = discord.Colour(int(str(accent).lstrip("#"), 16))
+            except ValueError:
+                raise InteractError(f"Invalid container accent colour: {accent!r} (use hex like 5865f2)")
+        return discord.ui.Container(*children, **kwargs)
+
+    raise InteractError(
+        f"Unknown v2 block type: {kind!r}. Supported: {', '.join(V2_BLOCK_TYPES)}"
+    )
+
+
+def build_v2_view(page: "DashboardPage", dashboard_id: str, *, nav: list | None = None) -> discord.ui.LayoutView:
+    """Assemble a LayoutView for one v2 page."""
+    view = discord.ui.LayoutView(timeout=None)
+    if not page.blocks:
+        raise InteractError("A page with layout 'v2' needs at least one entry in 'blocks'.")
+    for block in page.blocks:
+        view.add_item(build_v2_block(block, dashboard_id))
+    if nav:
+        view.add_item(discord.ui.ActionRow(*nav))
+    return view
 
 
 # ---------------------------------------------------------------------------
@@ -425,8 +577,30 @@ class InteractEngine:
     ) -> None:
         """Render the current page of the dashboard, editing existing or sending new."""
         page = definition.pages[state.current_page]
-        page_data = page.embed or {}
+        nav = self._nav_buttons(definition, state)
 
+        if page.is_v2():
+            view = build_v2_view(page, definition.dashboard_id, nav=nav)
+            # A Components v2 message carries no content and no embeds;
+            # Discord rejects the message outright if it does.
+            payload = {"view": view}
+        else:
+            payload = {"embed": self._page_embed(page), "view": self._page_view(definition, page, nav)}
+
+        if state.message_id is not None:
+            try:
+                msg = await channel.fetch_message(state.message_id)
+                await msg.edit(**payload)
+                return
+            except discord.NotFound:
+                pass
+
+        msg = await channel.send(**payload)
+        state.message_id = msg.id
+
+    @staticmethod
+    def _page_embed(page: DashboardPage) -> discord.Embed:
+        page_data = page.embed or {}
         embed = discord.Embed(
             title=page_data.get("title"),
             description=page_data.get("description"),
@@ -436,54 +610,53 @@ class InteractEngine:
             if k not in ("title", "description", "color"):
                 embed.set_footer(text=str(v))
                 break
+        return embed
 
-        view = discord.ui.View(timeout=None)
-        multi_page = len(definition.pages) > 1
-
-        if multi_page:
-            prev_btn = discord.ui.Button(
+    def _nav_buttons(
+        self, definition: DashboardDefinition, state: DashboardState
+    ) -> list[discord.ui.Button]:
+        """Previous/counter/next, shared by both layouts."""
+        if len(definition.pages) <= 1:
+            return []
+        return [
+            discord.ui.Button(
                 label="Previous",
                 style=discord.ButtonStyle.secondary,
                 custom_id=f"dash:{definition.dashboard_id}:prev",
                 disabled=state.current_page == 0,
-            )
-            counter_btn = discord.ui.Button(
+            ),
+            discord.ui.Button(
                 label=f"{state.current_page + 1}/{len(definition.pages)}",
                 style=discord.ButtonStyle.secondary,
                 custom_id=f"dash:{definition.dashboard_id}:counter",
                 disabled=True,
-            )
-            next_btn = discord.ui.Button(
+            ),
+            discord.ui.Button(
                 label="Next",
                 style=discord.ButtonStyle.secondary,
                 custom_id=f"dash:{definition.dashboard_id}:next",
                 disabled=state.current_page >= len(definition.pages) - 1,
-            )
-            view.add_item(prev_btn)
-            view.add_item(counter_btn)
-            view.add_item(next_btn)
+            ),
+        ]
 
-        # Add custom components from page and definition level
+    @staticmethod
+    def _page_view(
+        definition: DashboardDefinition,
+        page: DashboardPage,
+        nav: list[discord.ui.Button],
+    ) -> discord.ui.View:
+        view = discord.ui.View(timeout=None)
+        for button in nav:
+            view.add_item(button)
         for comp in list(page.components) + list(definition.components):
             if comp.get("type") == "button":
                 cid = comp.get("custom_id", comp.get("label", "btn"))
-                btn = discord.ui.Button(
+                view.add_item(discord.ui.Button(
                     label=comp.get("label", "Button"),
                     style=discord.ButtonStyle.primary,
                     custom_id=f"dash:{definition.dashboard_id}:{cid}",
-                )
-                view.add_item(btn)
-
-        if state.message_id is not None:
-            try:
-                msg = await channel.fetch_message(state.message_id)
-                await msg.edit(embed=embed, view=view)
-                return
-            except discord.NotFound:
-                pass
-
-        msg = await channel.send(embed=embed, view=view)
-        state.message_id = msg.id
+                ))
+        return view
 
     def _start_refresh(
         self,

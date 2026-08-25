@@ -221,3 +221,138 @@ def server_edit(ctx, server, name, description, icon, banner, verification_level
         return _action(client)
 
     run_rest(ctx, action)
+
+
+@server_group.group("onboarding")
+def onboarding_group():
+    """Inspect and adjust the server's onboarding flow."""
+
+
+@onboarding_group.command("show")
+@click.argument("server")
+@click.pass_context
+def onboarding_show(ctx, server):
+    """Show the server's onboarding configuration."""
+
+    def action(client):
+        async def _action(client):
+            guild = await resolve_guild(client, server)
+            onboarding = await guild.onboarding()
+
+            data = {
+                "enabled": onboarding.enabled,
+                "mode": onboarding.mode.name,
+                "default_channel_ids": sorted(str(c) for c in onboarding.default_channel_ids),
+                "prompts": [
+                    {
+                        "id": str(prompt.id),
+                        "title": prompt.title,
+                        "type": prompt.type.name,
+                        "single_select": prompt.single_select,
+                        "required": prompt.required,
+                        "in_onboarding": prompt.in_onboarding,
+                        "options": [
+                            {
+                                "id": str(option.id),
+                                "title": option.title,
+                                "description": option.description,
+                                "role_ids": [str(r) for r in option.role_ids],
+                                "channel_ids": [str(c) for c in option.channel_ids],
+                            }
+                            for option in prompt.options
+                        ],
+                    }
+                    for prompt in onboarding.prompts
+                ],
+            }
+
+            lines = [
+                f"enabled: {data['enabled']}",
+                f"mode: {data['mode']}",
+                f"default channels: {', '.join(data['default_channel_ids']) or 'none'}",
+            ]
+            for prompt in data["prompts"]:
+                flags = []
+                if prompt["required"]:
+                    flags.append("required")
+                if prompt["single_select"]:
+                    flags.append("single-select")
+                suffix = f" [{', '.join(flags)}]" if flags else ""
+                lines.append(f"prompt: {prompt['title']}{suffix} (ID: {prompt['id']})")
+                for option in prompt["options"]:
+                    lines.append(f"    - {option['title']}")
+            output(ctx, data, plain_text="\n".join(lines))
+        return _action(client)
+
+    run_rest(ctx, action)
+
+
+@onboarding_group.command("edit")
+@click.argument("server")
+@click.option("--enable/--disable", "enabled", default=None, help="Turn onboarding on or off.")
+@click.option(
+    "--mode",
+    type=click.Choice(["default", "advanced"]),
+    default=None,
+    help="'default' counts only default channels toward Discord's requirements; 'advanced' counts prompts too.",
+)
+@click.option("--default-channel", "default_channels", multiple=True, help="Replace the default channel list (name or ID, repeatable).")
+@click.option("--reason", default=None, help="Audit log reason.")
+@click.pass_context
+def onboarding_edit(ctx, server, enabled, mode, default_channels, reason):
+    """Edit onboarding settings.
+
+    Covers the settings that are safe to change one at a time. Editing the
+    prompts themselves is not supported here: Discord replaces the entire
+    prompt list on write, so a partial spec would silently delete the prompts
+    it omits. Use 'server onboarding show' to read them and Discord's UI to
+    change them.
+    """
+    import discord
+
+    from discli.security import audit_log
+
+    if enabled is None and mode is None and not default_channels:
+        raise click.ClickException("Nothing to change. Pass at least one option; see --help.")
+
+    def action(client):
+        async def _action(client):
+            guild = await resolve_guild(client, server)
+
+            kwargs = {"reason": reason}
+            if enabled is not None:
+                kwargs["enabled"] = enabled
+            if mode is not None:
+                kwargs["mode"] = discord.OnboardingMode[mode]
+            if default_channels:
+                channels = await guild.fetch_channels()
+                resolved = []
+                for value in default_channels:
+                    normalized = value.removeprefix("#").casefold()
+                    matches = [
+                        ch for ch in channels
+                        if str(ch.id) == value or ch.name.casefold() == normalized
+                    ]
+                    if not matches:
+                        raise click.ClickException(f"Channel not found in {guild.name}: {value}")
+                    if len(matches) > 1:
+                        ids = ", ".join(str(ch.id) for ch in matches)
+                        raise click.ClickException(
+                            f"Multiple channels match '{value}' (IDs: {ids}). Use a channel ID."
+                        )
+                    resolved.append(matches[0])
+                kwargs["default_channels"] = resolved
+
+            await guild.edit_onboarding(**kwargs)
+            changed = sorted(k for k in kwargs if k != "reason")
+            audit_log("server onboarding edit", {"server": server, "changed": changed})
+            output(ctx, {"server": guild.name, "changed": changed},
+                   plain_text=f"Updated onboarding for {guild.name}: {', '.join(changed)}")
+        return _action(client)
+
+    run_rest(ctx, action)
+
+
+# Imported last, and for its side effect: server_spec decorates server_group
+# with export/diff/apply, so the group must already exist above.
+from discli.commands import server_spec  # noqa: E402,F401

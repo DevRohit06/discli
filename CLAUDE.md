@@ -56,6 +56,11 @@ Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_
 - `schedule` actions are discli command lines, never shell commands. `parse_action()` lexes with `shlex(punctuation_chars=True)` so `;` and `&&` become their own tokens, then walks the real Click tree. Backticks and `$` are deliberately *not* rejected — no shell is involved, and a message containing backtick-wrapped code formatting is ordinary Discord content.
 - Scheduled actions run via `asyncio.to_thread`: discli commands call `asyncio.run()` internally, which raises if invoked from the scheduler's own running event loop.
 - `tzdata` is a Windows-only conditional dep. Windows ships no IANA tz database, so `schedule --tz` would otherwise raise `ZoneInfoNotFoundError`.
+- `server apply` is **additive by default**: it creates and updates what the spec names and leaves everything else alone. Deletions require `--prune`, which routes through `confirm_destructive`. Spec items are matched by **name, not ID**, so a rename reads as delete-plus-create — that is the price of a spec being portable between servers.
+- `_compare()` in `server_spec.py` only diffs fields the spec actually declares. An omitted field means "not managed here", not "set to null" — otherwise a hand-trimmed spec would blank out everything it left out.
+- Channel/role **positions are exported but never applied**. Discord renumbers siblings on every positional write, so applying them produces churn and ordering that depends on apply order.
+- Dashboard pages may set `layout: "v2"` for Components v2, but **every page of one dashboard must use the same layout**. Discord stamps `IS_COMPONENTS_V2` on the message at send time and it cannot be toggled, so paging between an embed page and a v2 page is impossible; `DashboardDefinition.__post_init__` rejects the mix. A v2 message also carries no content or embeds.
+- v2 buttons keep the same `dash:<id>:<key>` custom_id prefix as the embed layout, so interaction routing is identical across both.
 
 ## Architecture
 
@@ -69,9 +74,10 @@ Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_
 - `utils.py` — Output formatting plus async, cache-first resource resolvers with REST fallbacks
 - `config.py` — Token storage at `~/.discli/config.json`
 - `voice_engine.py` — VoiceEngine with AudioPlayer, AudioListener, VAD-based speech segmentation, audio codec handling
-- `interact_engine.py` — InteractEngine for modals, workflows, and dashboards with interaction routing and state management
+- `interact_engine.py` — InteractEngine for modals, workflows, and dashboards with interaction routing and state management; also the Components v2 block builders (`build_v2_block`, `build_v2_view`)
 - `tts.py` — TTS provider protocol with ElevenLabs and OpenAI implementations
 - `stt.py` — STT provider protocol with Deepgram and OpenAI Whisper implementations
+- `commands/server_spec.py` — `server export`/`diff`/`apply`; decorates `server_group` from `server.py`, which imports it at the bottom for that side effect
 - `commands/schedule.py` — `discli schedule`, recurring discli commands stored in `~/.discli/schedules.json`; `schedule run` drives them with `discord.ext.tasks`
 - `commands/doctor.py` — `discli doctor`, the first-stop diagnostic: checks token, ffmpeg on PATH, DAVE/Opus voice patches, provider API keys. All local unless `--server` is passed, which adds the network permission-bitfield check
 

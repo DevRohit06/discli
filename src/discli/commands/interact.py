@@ -189,6 +189,8 @@ def dashboard_create(ctx, spec_file, channel):
                 DashboardPage(
                     embed=p.get("embed", {}),
                     components=p.get("components", []),
+                    layout=p.get("layout", "embed"),
+                    blocks=p.get("blocks", []),
                 )
                 for p in raw.get("pages", [])
             ]

@@ -1,7 +1,7 @@
 # discli — Discord API & discord.py Surface Opportunities
 
 **Date:** 2026-08-25
-**Status:** Research / roadmap input — not an approved plan
+**Status:** All four waves shipped 2026-08-25. Kept as the record of why each choice was made.
 **Scope:** What discord.py 2.7.1 and the current Discord API make possible that discli does not yet expose.
 
 ---
@@ -386,19 +386,74 @@ Notes from the build:
   already re-sends the indicator: restructuring it into a repeating callback would be a
   regression in clarity, not a hardening.
 
-**Wave 4 — needs design first** (all that remains)
-Components v2 / Modal v2 rework of `interact_engine.py` · server-as-code (`server export` /
-`diff` / `apply`) · automod · onboarding.
+**Wave 4 - SHIPPED 2026-08-25**
+Components v2 (opt-in) - server-as-code (`server export` / `diff` / `apply`) - automod -
+onboarding.
+
+Two decisions were taken to the user rather than assumed, because either could have been
+got wrong in a way that destroys a server or breaks existing consumers:
+
+- **`server apply` is additive by default.** It creates and updates what the spec names
+  and leaves everything else alone; deleting server-side extras needs `--prune`, which
+  confirms first. The alternative, full sync by default, makes every incomplete spec a
+  deletion event.
+- **Components v2 is opt-in per page** (`layout: "v2"`), not a replacement for the embed
+  renderer. Existing spec files and `serve` consumers render exactly as before.
+
+Notes from the build:
+
+- Spec items are matched **by name, not ID**. That is what makes a spec portable to
+  another server, which is the point; the cost is that a rename reads as
+  delete-plus-create. Documented rather than papered over.
+- `_compare()` only diffs fields the spec actually declares. An omitted field means "not
+  managed here", not "set to null" - without that rule, trimming a spec down to the
+  handful of fields you care about would blank out everything you removed.
+- **Positions are exported but never applied.** Discord renumbers siblings on every
+  positional write, so applying them yields churn and an ordering that depends on apply
+  order. Reordering deserves its own design, not a side effect of this one.
+- Permission overwrites *are* included, but only role overwrites. A member overwrite
+  names one person by ID and cannot survive being applied to a different server.
+- Mixed dashboard layouts are rejected at construction. Discord stamps
+  `IS_COMPONENTS_V2` on a message when it is sent and the flag cannot be toggled, so a
+  dashboard cannot page from an embed layout into a v2 one. Catching it in
+  `__post_init__` beats failing halfway through a user's navigation.
+- v2 buttons keep the `dash:<id>:<key>` custom_id prefix, so interaction routing is
+  identical across both layouts. v2 changes how a page looks, not how it dispatches.
+- `automod create` validates trigger/option combinations itself. discord.py infers the
+  trigger type from whichever argument is set, which silently ignores options that do not
+  belong to the chosen trigger - `--trigger spam --keyword foo` would have built a rule
+  that quietly does something else.
+- `server onboarding edit` covers enabled/mode/default-channels but **not** the prompts.
+  Discord replaces the entire prompt list on write, so a partial spec would silently
+  delete the prompts it omits. That needs its own format design.
 
 ---
 
-## 8. Sources
+## 8. What is left
 
-- [discord.py on PyPI](https://pypi.org/project/discord.py/) — latest version and release date
-- [discord.py changelog](https://discordpy.readthedocs.io/en/latest/whats_new.html) — per-version features
+Nothing from the original survey is unshipped. The remaining gaps were all found during
+the build rather than in the survey:
+
+- **`serve` has no test harness.** Its `visible_only` flag (Wave 2) and the `tasks.Loop`
+  flush conversion (Wave 3) are verified by reading, not by tests. The flush change is
+  specifically about failure handling, so it deserves one.
+- **`security.py`'s `moderation` profile is still byte-identical to `full`**
+  (`allowed: ["*"], denied: []`), while `skills/discord-moderation/SKILL.md` describes it
+  as a restricted subset. Flagged in Wave 1, still unaddressed.
+- Onboarding prompt editing and channel/role reordering both need a format design.
+- Small, unbuilt, none blocking: stickers (A4), soundboard (A5), bulk-ban (A9), member
+  prune (A10), guild widget (A16), message forwarding (A14), and per-guild bot identity
+  (A13).
+
+---
+
+## 9. Sources
+
+- [discord.py on PyPI](https://pypi.org/project/discord.py/) - latest version and release date
+- [discord.py changelog](https://discordpy.readthedocs.io/en/latest/whats_new.html) - per-version features
 - [discord.ext.tasks documentation](https://discordpy.readthedocs.io/en/latest/ext/tasks/index.html)
-- [Discord developer change log](https://docs.discord.com/developers/change-log) — API changes and deadlines
-- [Discord search API for bots — current state](https://gist.github.com/derwells/0575f28ba87fda8ec7d239b649e1c445) — search endpoint parameters
+- [Discord developer change log](https://docs.discord.com/developers/change-log) - API changes and deadlines
+- [Discord search API for bots, current state](https://gist.github.com/derwells/0575f28ba87fda8ec7d239b649e1c445) - search endpoint parameters
 - [advaith, announcing bot access to Search Guild Messages](https://x.com/advaithj1/status/2035139632405651947)
 
 Local verification: `src/discli/` grep for each API name; `.venv/Lib/site-packages/discord/`

@@ -118,6 +118,8 @@ discli server edit "server name" --name "New Name" --description "..." --icon ic
 discli server edit "server name" --verification-level high --system-channel #general
 discli server audit-log "server name" --limit 50
 discli server audit-log "server name" --action ban --user <member> --changes
+discli server onboarding show "server name"
+discli server onboarding edit "server name" --enable --mode advanced --default-channel #welcome
 ```
 `server audit-log` reads **Discord's** log of who did what in the server (needs View Audit Log).
 That is a different thing from `discli audit`, which shows what this CLI did locally.
@@ -166,6 +168,40 @@ discli webhook send <channel> "announcer" "text" --embed-title "Title" --file re
 discli webhook delete <channel> <webhook_id>
 ```
 `webhook send` posts under a custom name and avatar without changing the bot's own identity.
+
+### AutoMod
+```bash
+discli automod list "server name"
+discli automod create "server" "no-links" --trigger keyword --keyword badword --action block
+discli automod create "server" "raid-guard" --trigger mention-spam --mention-limit 5 --action timeout --timeout 600
+discli automod create "server" "profanity" --trigger keyword-preset --preset profanity --action alert --alert-channel #mod-log
+discli automod edit "server" "no-links" --keyword a --keyword b   # replaces the list, does not append
+discli automod enable|disable "server" "no-links"
+discli automod delete "server" "no-links"
+```
+A rule is one `--trigger` (what to detect) plus one or more `--action` (what to do).
+Triggers: `keyword`, `spam`, `keyword-preset`, `mention-spam`, `member-profile`.
+Actions: `block`, `alert` (needs `--alert-channel`), `timeout` (needs `--timeout`, max 28 days).
+Options that do not belong to the chosen trigger are rejected rather than silently ignored.
+
+### Server as code
+```bash
+discli server export "server name" --out prod.json     # roles, categories, channels, overwrites
+discli server diff "server name" prod.json             # read-only
+discli server apply "server name" prod.json --dry-run  # show the plan
+discli server apply "server name" prod.json            # additive: create + update only
+discli server apply "server name" prod.json --prune    # also delete what the spec omits (confirms first)
+```
+Three things to know before using this:
+- **Matched by name, not ID** — that is what makes a spec portable to another server, but it
+  also means a rename reads as "delete the old, create the new".
+- **`apply` never deletes without `--prune`**, which prompts for confirmation.
+- **A field the spec omits is left alone.** Trimming a spec to the few fields you care about
+  does not blank out the rest.
+
+Covers roles, categories, channels, and role permission overwrites. Not covered (each has its
+own commands): members, messages, emoji, webhooks, invites, AutoMod. Positions are exported for
+reference but never applied — Discord renumbers siblings on every positional write.
 
 ### Invites
 ```bash

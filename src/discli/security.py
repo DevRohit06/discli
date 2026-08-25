@@ -26,6 +26,8 @@ DESTRUCTIVE_COMMANDS = {
     "emoji delete",
     "invite delete",
     "schedule remove",
+    "automod delete",
+    "server apply --prune",
 }
 
 # Default permission profiles
@@ -42,7 +44,7 @@ DEFAULT_PROFILES = {
     },
     "readonly": {
         "description": "Read-only: list, info, get, search, listen",
-        "allowed": ["message list", "message get", "message search", "message history", "message pins", "channel list", "channel info", "server list", "server info", "server audit-log", "role list", "member list", "member info", "reaction list", "thread list", "invite list", "invite info", "emoji list", "schedule list", "listen", "config show", "voice status", "voice where", "voice members"],
+        "allowed": ["message list", "message get", "message search", "message history", "message pins", "channel list", "channel info", "server list", "server info", "server audit-log", "role list", "member list", "member info", "reaction list", "thread list", "invite list", "invite info", "emoji list", "automod list", "server export", "server diff", "server onboarding show", "schedule list", "listen", "config show", "voice status", "voice where", "voice members"],
         "denied": ["*"],
     },
     "moderation": {

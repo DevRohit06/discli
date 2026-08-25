@@ -1,6 +1,7 @@
 import click
 
 from discli.config import load_config
+from discli.commands.automod import automod_group
 from discli.commands.channel import channel_group
 from discli.commands.config_cmd import config_group
 from discli.commands.dm import dm_group
@@ -44,6 +45,7 @@ def main(ctx, token, use_json, yes, profile):
     ctx.obj["profile"] = profile
 
 
+main.add_command(automod_group)
 main.add_command(channel_group)
 main.add_command(config_group)
 main.add_command(dm_group)

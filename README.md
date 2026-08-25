@@ -54,7 +54,8 @@ Some Discord HTTP endpoints and response fields are still restricted by applicat
 - **Threads**: create, list, archive, message inside
 - **DMs**: send and read direct messages
 - **Reactions & polls**: manage emoji reactions, run polls with multiple choices
-- **Server admin**: edit name/icon/banner, read Discord's audit log, manage invites and custom emoji
+- **Server admin**: edit name/icon/banner, read Discord's audit log, manage invites, custom emoji, and AutoMod rules
+- **Server as code**: `discli server export | diff | apply` — roles, categories, channels and permission overwrites in a file
 - **Webhooks**: create, list, and post through them under a custom name and avatar
 - **Live events**: `discli listen` streams every message, reaction, member event as JSONL
 - **AI agents**: `discli serve` keeps a persistent bot open over stdin/stdout JSONL; drive it from Claude, OpenAI, LangChain, bash
