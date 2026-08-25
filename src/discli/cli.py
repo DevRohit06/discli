@@ -25,6 +25,7 @@ from discli.commands.event import event_group
 from discli.commands.voice import voice_group
 from discli.commands.interact import interact_group
 from discli.commands.doctor import doctor_cmd
+from discli.commands.setup import setup_cmd
 
 
 def _force_utf8_output() -> None:
@@ -92,6 +93,7 @@ main.add_command(event_group)
 main.add_command(voice_group)
 main.add_command(interact_group)
 main.add_command(doctor_cmd)
+main.add_command(setup_cmd)
 
 
 # Permission management commands

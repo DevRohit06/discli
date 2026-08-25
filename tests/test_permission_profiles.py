@@ -231,11 +231,12 @@ def test_no_command_silently_skips_the_permission_check():
 
 
 @pytest.mark.parametrize("profile", ["chat", "readonly", "moderation"])
-@pytest.mark.parametrize("path", ["config set", "permission set", "audit clear"])
+@pytest.mark.parametrize("path", ["config set", "permission set", "audit clear", "setup"])
 def test_only_full_may_reconfigure_discli(profile, path):
     """`config set` overwrites the stored bot token; `permission set` changes
-    the profile itself; `audit clear` destroys the record. None belongs to a
-    restricted profile.
+    the profile itself; `audit clear` destroys the record; `setup` does the
+    first two in one command, so a restricted profile that could run it could
+    promote itself to full. None belongs to a restricted profile.
 
     `chat` used to grant `config set` -- and, once the server group grew an
     `apply`, a whole server restructure -- because it listed the bare prefixes
