@@ -22,6 +22,87 @@ try:
 except ImportError:
     app_commands = None
 
+def make_stream_flush_loop(stream_id, streams, flush, emit, *, interval=None):
+    """Build the periodic flush loop for one stream.
+
+    Lives at module level, and takes its collaborators as arguments, purely so
+    it can be tested. The behaviour it encodes is failure handling -- what
+    happens when a flush raises -- which is exactly the thing that cannot be
+    verified by reading.
+
+    This replaced a bare ``while True: await asyncio.sleep(...)`` task that
+    caught only CancelledError. Any other exception killed flushing for that
+    stream for the life of the process, silently: the task's exception was
+    never retrieved, so a caller just saw a message stop updating. tasks.Loop
+    retries transient network errors with exponential backoff and routes
+    everything else to the error handler below, where it becomes a JSONL event
+    the driving agent can see.
+    """
+    interval = STREAM_EDIT_INTERVAL if interval is None else interval
+
+    async def _flush() -> None:
+        stream = streams.get(stream_id)
+        if not stream or stream.get("done"):
+            loop.stop()
+            return
+        await flush(stream_id)
+
+    loop = tasks.Loop(
+        _flush,
+        seconds=interval,
+        hours=0,
+        minutes=0,
+        time=discord.utils.MISSING,
+        count=None,
+        reconnect=True,
+        name=f"discli-stream-flush-{stream_id}",
+    )
+
+    @loop.before_loop
+    async def _wait_first_interval() -> None:
+        # tasks.Loop runs the body before its first sleep; the loop this
+        # replaced slept first. Preserve that so a stream that finishes inside
+        # the first interval never issues a spurious edit.
+        await asyncio.sleep(interval)
+
+    @loop.error
+    async def _on_flush_error(exc: BaseException) -> None:
+        emit({
+            "type": "error",
+            "error": f"stream flush failed: {exc!r}",
+            "stream_id": stream_id,
+        })
+
+    return loop
+
+
+def serialize_channels(guilds):
+    """Build the ``channel_list`` payload for a set of guilds.
+
+    Only channels this bot can view are ever returned; from 2026-11-16 Discord
+    withholds the rest at the API level. ``visible_only`` says so in-band
+    because the JSONL protocol has no stderr equivalent for a note.
+    """
+    channels = []
+    for guild in guilds:
+        if not guild:
+            continue
+        for ch in guild.channels:
+            if isinstance(ch, (discord.TextChannel, discord.VoiceChannel, discord.ForumChannel)):
+                channels.append({
+                    "id": str(ch.id),
+                    "name": ch.name,
+                    "type": "forum"
+                    if isinstance(ch, discord.ForumChannel)
+                    else "text"
+                    if isinstance(ch, discord.TextChannel)
+                    else "voice",
+                    "server": guild.name,
+                    "server_id": str(guild.id),
+                })
+    return {"ok": True, "channels": channels, "visible_only": True}
+
+
 DISCORD_MSG_LIMIT = 2000
 STREAM_EDIT_INTERVAL = 1.5  # Discord rate limit on edits
 CODE_BLOCK_FILE_THRESHOLD = 800
@@ -662,51 +743,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
     # ── Streaming Edits ────────────────────────────────────────────
 
     def _make_stream_flush_loop(stream_id: str) -> tasks.Loop:
-        """Build the periodic flush loop for one stream.
-
-        This was a bare ``while True: await asyncio.sleep(...)`` task that
-        caught only CancelledError. Any other exception killed flushing for
-        that stream for the life of the process, silently — the task's
-        exception was never retrieved, so the caller just saw a message stop
-        updating. tasks.Loop retries transient network errors with exponential
-        backoff and routes everything else to the error handler below, where
-        it becomes a JSONL event the driving agent can actually see.
-        """
-
-        async def _flush() -> None:
-            stream = streams.get(stream_id)
-            if not stream or stream.get("done"):
-                loop.stop()
-                return
-            await _stream_flush(stream_id)
-
-        loop = tasks.Loop(
-            _flush,
-            seconds=STREAM_EDIT_INTERVAL,
-            hours=0,
-            minutes=0,
-            time=discord.utils.MISSING,
-            count=None,
-            reconnect=True,
-            name=f"discli-stream-flush-{stream_id}",
-        )
-
-        @loop.before_loop
-        async def _wait_first_interval() -> None:
-            # tasks.Loop runs the body before its first sleep; the loop this
-            # replaced slept first. Preserve that so a stream that finishes
-            # inside the first interval never issues a spurious edit.
-            await asyncio.sleep(STREAM_EDIT_INTERVAL)
-
-        @loop.error
-        async def _on_flush_error(exc: BaseException) -> None:
-            emit({
-                "type": "error",
-                "error": f"stream flush failed: {exc!r}",
-                "stream_id": stream_id,
-            })
-
-        return loop
+        return make_stream_flush_loop(stream_id, streams, _stream_flush, emit)
 
     async def _stream_flush(stream_id: str):
         stream = streams.get(stream_id)
@@ -1234,27 +1271,7 @@ def serve_cmd(ctx, server, channel, events, include_self, slash_commands_file,
         guilds = (
             [await resolve_guild_by_id(guild_id)] if guild_id else client.guilds
         )
-        channels = []
-        for guild in guilds:
-            if not guild:
-                continue
-            for ch in guild.channels:
-                if isinstance(ch, (discord.TextChannel, discord.VoiceChannel, discord.ForumChannel)):
-                    channels.append({
-                        "id": str(ch.id),
-                        "name": ch.name,
-                        "type": "forum"
-                        if isinstance(ch, discord.ForumChannel)
-                        else "text"
-                        if isinstance(ch, discord.TextChannel)
-                        else "voice",
-                        "server": guild.name,
-                        "server_id": str(guild.id),
-                    })
-        # Only channels this bot can view are ever returned; from 2026-11-16
-        # Discord withholds the rest at the API level. Flagged in-band because
-        # the JSONL protocol has no stderr equivalent for an out-of-band note.
-        return {"ok": True, "channels": channels, "visible_only": True}
+        return serialize_channels(guilds)
 
     async def _action_channel_create(cmd: dict) -> dict:
         guild_id = cmd.get("guild_id")
