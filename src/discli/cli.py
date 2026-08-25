@@ -2,6 +2,7 @@ import sys
 
 import click
 
+from discli import __version__
 from discli.config import load_config
 from discli.commands.automod import automod_group
 from discli.commands.channel import channel_group
@@ -50,6 +51,14 @@ def _force_utf8_output() -> None:
 
 
 @click.group()
+@click.version_option(
+    __version__,
+    "-V",
+    "--version",
+    package_name="discord-cli-agent",
+    prog_name="discli",
+    message="%(prog)s version %(version)s",
+)
 @click.option("--token", envvar="DISCORD_BOT_TOKEN", default=None, help="Discord bot token.")
 @click.option("--json", "use_json", is_flag=True, default=False, help="Output as JSON.")
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompts for destructive actions.")
