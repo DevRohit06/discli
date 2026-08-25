@@ -89,6 +89,7 @@ passed through as literal arguments. Give either `--time HH:MM` (daily, `--tz` d
 
 ### Diagnostics
 ```bash
+discli --version                           # installed version, e.g. "discli version 0.11.0"
 discli doctor                              # local checks only, no network
 discli doctor --server "server name"       # also verifies the bot's real permissions
 ```

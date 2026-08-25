@@ -94,9 +94,12 @@ Before installing, make sure you have:
 
 ## Verify the installation
 
-After installing, confirm that discli is available:
+After installing, confirm that discli is available and check which version you got:
 
 ```bash
+discli --version
+# discli version 0.11.0
+
 discli --help
 ```
 
@@ -108,6 +111,7 @@ Usage: discli [OPTIONS] COMMAND [ARGS]...
   discli — Discord CLI for AI agents.
 
 Options:
+  -V, --version                   Show the version and exit.
   --token TEXT                     Discord bot token.
   --json                          Output as JSON.
   -y, --yes                       Skip confirmation prompts for destructive
