@@ -66,6 +66,8 @@ Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_
 - `resolve_guild()` by **name** goes through `GET /users/@me/guilds`, which returns *partial* guilds with no roles and no `owner_id`. Anything reading `Member.guild_permissions` or `guild.get_role()` off one computes zero instead of failing, so `_ensure_full_guild()` re-fetches by ID. Do not remove it.
 - `fetch_channels()` does not populate the guild's channel cache either, so `channel.category` is always None on a REST client. `server_spec._channel_spec()` resolves the parent from `category_id` against the fetched list instead.
 - `cli.py` reconfigures stdout/stderr to UTF-8 at startup. Windows consoles and redirected pipes default to a legacy code page, and emoji in Discord channel names would otherwise raise `UnicodeEncodeError`.
+- Profile patterns match by **prefix**, so a bare group name in an `allowed` list grants every command that group will ever have. `chat` listed `"config"` and `"server"`, which is how it came to allow `config set` (overwriting the stored token) and `server apply`. Spell out subcommands unless blanket access is intended; `test_no_profile_grants_a_whole_group_by_bare_prefix` enforces it against the live tree.
+- `confirm_destructive()` calls `enforce_profile()` before prompting. Otherwise a forbidden command asks "are you sure?" and only refuses after you say yes.
 
 ## Architecture
 

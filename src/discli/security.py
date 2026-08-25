@@ -37,9 +37,18 @@ DEFAULT_PROFILES = {
         "allowed": ["*"],
         "denied": [],
     },
+    # "config" and "server" used to appear here as bare prefixes. Patterns match
+    # by prefix, so those granted every present and future subcommand of both
+    # groups: `chat` could run `config set` (overwriting the stored bot token)
+    # and, once `server apply` existed, restructure or `--prune` a whole server.
+    # A profile must not silently widen because someone added a command to a
+    # group it names, so both are spelled out.
     "chat": {
         "description": "Messages, reactions, threads, typing, interactions only",
-        "allowed": ["message", "reaction", "thread", "typing", "dm", "listen", "serve", "config", "server", "interact"],
+        "allowed": [
+            "message", "reaction", "thread", "typing", "dm", "listen", "serve", "interact",
+            "config show", "server list", "server info",
+        ],
         "denied": ["member kick", "member ban", "member unban", "channel delete", "role delete", "role create", "channel create", "voice"],
     },
     "readonly": {
@@ -160,6 +169,15 @@ def confirm_destructive(command_path: str, details: str = "") -> None:
         return
 
     ctx = click.get_current_context()
+
+    # Deny before prompting. Callers run this before run_rest(), so a command
+    # the profile forbids used to ask "are you sure?" first and only refuse
+    # after the user said yes -- confirming an action they were never allowed
+    # to take. It failed closed, but the order was backwards.
+    from discli.client import enforce_profile
+
+    enforce_profile(ctx)
+
     if ctx.obj.get("yes"):
         return
 

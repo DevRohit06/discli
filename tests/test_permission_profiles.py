@@ -225,3 +225,76 @@ def test_no_command_silently_skips_the_permission_check():
         + ", ".join(unguarded)
         + " -- call enforce_profile(ctx) or add them to ENFORCEMENT_EXEMPT with a reason"
     )
+
+
+# ── prefix grants must not silently widen ──────────────────────────
+
+
+@pytest.mark.parametrize("profile", ["chat", "readonly", "moderation"])
+@pytest.mark.parametrize("path", ["config set", "permission set", "audit clear"])
+def test_only_full_may_reconfigure_discli(profile, path):
+    """`config set` overwrites the stored bot token; `permission set` changes
+    the profile itself; `audit clear` destroys the record. None belongs to a
+    restricted profile.
+
+    `chat` used to grant `config set` -- and, once the server group grew an
+    `apply`, a whole server restructure -- because it listed the bare prefixes
+    "config" and "server" and patterns match by prefix.
+    """
+    assert allowed(path, profile) is False
+
+
+@pytest.mark.parametrize("path", [
+    "server apply", "server edit", "server onboarding edit",
+    "config set", "channel delete", "role delete", "member kick",
+])
+def test_chat_cannot_reshape_a_server(path):
+    assert allowed(path, "chat") is False, f"chat should not allow {path}"
+
+
+@pytest.mark.parametrize("path", [
+    "message send", "message reply", "reaction add", "thread create",
+    "dm send", "typing", "server list", "server info", "config show",
+])
+def test_chat_keeps_what_it_is_for(path):
+    assert allowed(path, "chat") is True, f"chat should still allow {path}"
+
+
+def test_no_profile_grants_a_whole_group_by_bare_prefix():
+    """A bare *group* name grants every command that group will ever have.
+
+    That is how `chat` came to allow `config set` and, once the server group
+    grew one, `server apply`. Bare *leaf* commands are fine -- they cannot
+    acquire subcommands. Only groups where blanket access is genuinely intended
+    may be listed bare.
+    """
+    from discli.cli import main
+
+    intended_bare_groups = {
+        "message", "reaction", "thread", "dm", "interact", "voice", "automod",
+    }
+    offenders = []
+    for name, profile in DEFAULT_PROFILES.items():
+        for pattern in profile.get("allowed", []):
+            if pattern == "*" or " " in pattern:
+                continue
+            target = main.commands.get(pattern)
+            if isinstance(target, click.Group) and pattern not in intended_bare_groups:
+                offenders.append(f"{name}: {pattern!r}")
+    assert not offenders, (
+        "these profiles grant a whole group by bare prefix, so adding any "
+        "command to that group silently widens them: " + ", ".join(offenders)
+    )
+
+
+def test_denied_destructive_command_does_not_prompt_first(monkeypatch, tmp_path):
+    """Confirming an action you are not allowed to take is backwards."""
+    monkeypatch.setattr("discli.security.PERMISSIONS_PATH", tmp_path / "permissions.json")
+    from click.testing import CliRunner
+
+    from discli.cli import main
+
+    # No stdin: if it prompts, the runner sees EOF and the test would show it.
+    result = CliRunner().invoke(main, ["--profile", "readonly", "member", "kick", "1", "2"])
+    assert "Destructive action" not in result.output, "prompted before checking the profile"
+    assert "denied by" in result.output
