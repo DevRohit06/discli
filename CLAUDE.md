@@ -61,6 +61,7 @@ Note: `examples/meeting_transcriber.py` reads `DISCORD_TOKEN`, not `DISCORD_BOT_
 - Channel/role **positions are exported but never applied**. Discord renumbers siblings on every positional write, so applying them produces churn and ordering that depends on apply order.
 - Dashboard pages may set `layout: "v2"` for Components v2, but **every page of one dashboard must use the same layout**. Discord stamps `IS_COMPONENTS_V2` on the message at send time and it cannot be toggled, so paging between an embed page and a v2 page is impossible; `DashboardDefinition.__post_init__` rejects the mix. A v2 message also carries no content or embeds.
 - v2 buttons keep the same `dash:<id>:<key>` custom_id prefix as the embed layout, so interaction routing is identical across both.
+- The `moderation` permission profile is an **allowlist**, not `["*"]`. It used to be byte-identical to `full`, which made selecting it for least privilege a no-op. Voice and interact are in scope on purpose (commit `df6b606`) and must stay; `permission set` must stay out or the profile can promote itself to `full`. `tests/test_permission_profiles.py` pins both, plus the moderation-is-a-superset-of-readonly invariant.
 
 ## Architecture
 

@@ -47,9 +47,46 @@ DEFAULT_PROFILES = {
         "allowed": ["message list", "message get", "message search", "message history", "message pins", "channel list", "channel info", "server list", "server info", "server audit-log", "role list", "member list", "member info", "reaction list", "thread list", "invite list", "invite info", "emoji list", "automod list", "server export", "server diff", "server onboarding show", "schedule list", "listen", "config show", "voice status", "voice where", "voice members"],
         "denied": ["*"],
     },
+    # An allowlist, not "*". Voice and interact are in scope on purpose (see
+    # df6b606, "update permission profiles with voice and interact scopes") and
+    # stay; what the "*" also granted -- deleting channels and roles, editing
+    # server settings, webhooks, and `permission set` -- was never the intent
+    # and is what made selecting this profile for least privilege a no-op.
+    # `permission set` in particular must stay out, or the profile can promote
+    # itself to full and every other limit here is decorative.
     "moderation": {
-        "description": "Full access including moderation, voice, and interactions",
-        "allowed": ["*"],
+        "description": "Moderation, voice, and interactions. No structural or security changes.",
+        "allowed": [
+            # Observe
+            "audit show", "config show", "doctor", "listen", "serve",
+            "server list", "server info", "server audit-log",
+            "server export", "server diff", "server onboarding show",
+            "channel list", "channel info",
+            "role list", "member list", "member info",
+            "emoji list", "event list", "permission show", "schedule list",
+            "invite list", "invite info",
+            "message list", "message get", "message history",
+            "message search", "message search-server", "message pins",
+            "reaction list", "reaction users",
+            # Moderate members
+            "member kick", "member ban", "member unban", "member timeout", "member nick",
+            "role assign", "role remove",
+            # Moderate content
+            "message delete", "message bulk-delete", "message pin", "message unpin",
+            "reaction remove", "reaction add",
+            "invite delete",
+            # Lock down a channel: slowmode and permission overwrites are the
+            # standard raid response. Channel creation and deletion are not.
+            "channel edit", "channel set-permissions",
+            # Threads
+            "thread",
+            # AutoMod is a moderation tool end to end
+            "automod",
+            # In scope by an explicit earlier decision, not by accident.
+            "voice", "interact",
+            # Communicate a decision
+            "message send", "message reply", "message edit", "dm send", "dm list", "typing",
+        ],
         "denied": [],
     },
 }

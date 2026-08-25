@@ -438,9 +438,19 @@ the build rather than in the survey:
   `serialize_channels` were lifted to module level in `serve.py` and now carry 12 tests,
   including the failure-reporting and first-interval behaviours that reading could not
   confirm. The rest of `serve` remains closure-bound and untested.
-- **`security.py`'s `moderation` profile is still byte-identical to `full`**
-  (`allowed: ["*"], denied: []`), while `skills/discord-moderation/SKILL.md` describes it
-  as a restricted subset. Flagged in Wave 1, still unaddressed.
+- ~~**`security.py`'s `moderation` profile is byte-identical to `full`.**~~ Fixed
+  2026-08-25. Now an allowlist: readonly plus member/content moderation, AutoMod, channel
+  lockdown, and -- deliberately retained -- voice and interact. Structural changes,
+  webhooks, emoji, scheduling, `config set`, `audit clear`, and `permission set` are
+  excluded. **Breaking** for anyone who relied on it granting everything; use
+  `--profile full`.
+
+  Worth recording how nearly this went wrong: reading only the code, `allowed: ["*"]`
+  looks like pure oversight. `git log` on the tests shows commit `df6b606`, "update
+  permission profiles with voice and interact scopes" -- voice and interact were an
+  explicit decision, and two existing tests asserted them. The first attempt at this fix
+  dropped both and failed those tests. The lesson is that the code was half intent and
+  half bug, and only the history distinguished them.
 - Onboarding prompt editing and channel/role reordering both need a format design.
 - Small, unbuilt, none blocking: stickers (A4), soundboard (A5), bulk-ban (A9), member
   prune (A10), guild widget (A16), message forwarding (A14), and per-guild bot identity
