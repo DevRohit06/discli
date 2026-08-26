@@ -26,6 +26,7 @@ from discli.commands.event import event_group
 from discli.commands.voice import voice_group
 from discli.commands.interact import interact_group
 from discli.commands.doctor import doctor_cmd
+from discli.commands.setup import setup_cmd
 
 
 def _force_utf8_output() -> None:
@@ -101,6 +102,7 @@ main.add_command(event_group)
 main.add_command(voice_group)
 main.add_command(interact_group)
 main.add_command(doctor_cmd)
+main.add_command(setup_cmd)
 
 
 # Permission management commands
@@ -114,17 +116,9 @@ def permission_group():
 def permission_show(ctx):
     """Show the active permission profile."""
     import json as json_mod
-    from discli.security import get_active_profile, DEFAULT_PROFILES, PERMISSIONS_PATH
+    from discli.security import get_active_profile, get_active_profile_name
 
-    if PERMISSIONS_PATH.exists():
-        try:
-            data = json_mod.loads(PERMISSIONS_PATH.read_text())
-            active = data.get("active_profile", "full")
-        except Exception:
-            active = "full"
-    else:
-        active = "full"
-
+    active = get_active_profile_name()
     profile = get_active_profile()
     use_json = ctx.obj.get("use_json", False)
     result = {"active_profile": active, **profile}

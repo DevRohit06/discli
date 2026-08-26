@@ -496,3 +496,18 @@ def test_schedule_run_now_exits_nonzero_on_failure(store, monkeypatch):
     assert result.exit_code == 1
     data = json.loads(_cli(["--json", "schedule", "list"]).stdout)
     assert data[0]["last_result"].startswith("failed:")
+
+
+def test_setup_cannot_be_scheduled():
+    """`setup` blocks on click.prompt, and a scheduled action runs in a
+    worker thread via asyncio.to_thread. A fire would wait forever on stdin
+    the console owns, wedging the entry with no last_run ever recorded --
+    the same reason serve and listen are excluded, only harder to notice.
+    """
+    from discli.commands.schedule import parse_action
+
+    import click
+
+    with pytest.raises(click.ClickException) as exc:
+        parse_action("setup")
+    assert "setup" in str(exc.value)

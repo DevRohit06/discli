@@ -284,6 +284,7 @@ DISCLI_PERMISSIONS = {
     "create_public_threads": "thread create",
     "manage_messages": "message delete, message bulk-delete",
     "pin_messages": "message pin, message unpin",
+    "bypass_slowmode": "message send while a channel is in slowmode",
     "manage_channels": "channel create/delete/edit, invite delete",
     "create_instant_invite": "invite create",
     "manage_roles": "role *, channel set-permissions",

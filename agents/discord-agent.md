@@ -88,6 +88,10 @@ passed through as literal arguments. Give either `--time HH:MM` (daily, `--tz` d
 `--every 30s|15m|2h|1d`; the minimum interval is 30s.
 
 ### Diagnostics
+`discli setup` is an interactive wizard for humans and is **not usable by you**. It refuses
+with exit 1 when stdin is not a terminal or `--json` is given, so calling it configures
+nothing. Use `discli config set token ...` and `discli permission set ...` directly instead.
+
 ```bash
 discli --version                           # installed version, e.g. "discli version 0.11.0"
 discli doctor                              # local checks only, no network

@@ -62,7 +62,7 @@ Some Discord HTTP endpoints and response fields are still restricted by applicat
 - **Interactive components**: modals, multi-step workflows with state, persistent dashboards
 - **Voice** *(optional extra)*: join voice channels, transcribe speech, TTS, audio playback, live meeting summaries
 - **Scheduling**: `discli schedule` runs discli commands daily at a wall-clock time or on an interval
-- **Doctor**: `discli doctor` verifies your setup in one command; `--server NAME` also checks the bot's real Discord permissions
+- **Setup & Doctor**: `discli setup` walks you through token, invite, permissions and voice interactively; `discli doctor` verifies your setup in one command; `--server NAME` also checks the bot's real Discord permissions
 
 ## Install
 
@@ -82,6 +82,19 @@ You'll also need **libopus** (`apt install libopus0` / `brew install opus`) and 
 
 ## Setup
 
+Create a bot at the [Discord Developer Portal](https://discord.com/developers/applications), then let the wizard do the rest:
+
+```bash
+discli setup
+```
+
+It checks your token against Discord *before* saving it and shows you which bot it belongs to, builds an invite URL carrying exactly the permissions you pick, sets a permission profile, points voice users at the environment variables their providers read, and finishes with a `discli doctor` report. Re-run it whenever you like: every step shows what is already configured and offers to keep it.
+
+`discli setup` needs a terminal. It refuses when stdin is piped or `--json` is passed, so scripts and agents should use the individual commands below instead of driving the wizard.
+
+<details>
+<summary>Manual setup, step by step</summary>
+
 1. Create a bot at [Discord Developer Portal](https://discord.com/developers/applications).
 2. Enable privileged intents only when a selected feature needs them (Message Content for live message content, Members for member lists or name lookups). Standard intents such as Voice States are requested automatically by the relevant Gateway command.
 3. Invite the bot to your server with the permissions you actually need.
@@ -98,6 +111,8 @@ You'll also need **libopus** (`apt install libopus0` / `brew install opus`) and 
    ```
 
    Doctor reports what's set up and what's missing. Optional features you haven't asked for stay silent.
+
+</details>
 
 ## A bash agent in 8 lines
 
