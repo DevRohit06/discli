@@ -25,7 +25,7 @@ def resolve_token(token: str | None, config: dict) -> str:
     if config_token:
         return config_token
     raise click.ClickException(
-        "No token provided. Use --token, set DISCORD_BOT_TOKEN, or run: discli config set token YOUR_TOKEN"
+        "No token provided. Use --token, set DISCORD_BOT_TOKEN (or DISCORD_TOKEN), or run: discli config set token YOUR_TOKEN"
     )
 
 

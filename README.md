@@ -196,7 +196,7 @@ discli config set token YOUR_TOKEN
 discli config show
 ```
 
-Stored at `~/.discli/config.json`. Token resolution: `--token` flag → `DISCORD_BOT_TOKEN` env var → config file.
+Stored at `~/.discli/config.json` (auto-secured with `0600` permissions). Token resolution: `--token` flag → `DISCORD_BOT_TOKEN` / `DISCORD_TOKEN` env var → config file.
 
 ## Documentation
 

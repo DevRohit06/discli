@@ -30,13 +30,13 @@ flowchart TD
 | Priority | Source | Example |
 |---|---|---|
 | 1 (highest) | `--token` CLI flag | `discli --token Bot_ABC123 message send ...` |
-| 2 | `DISCORD_BOT_TOKEN` environment variable | `export DISCORD_BOT_TOKEN=Bot_ABC123` |
+| 2 | `DISCORD_BOT_TOKEN` / `DISCORD_TOKEN` environment variable | `export DISCORD_BOT_TOKEN=Bot_ABC123` |
 | 3 (lowest) | `~/.discli/config.json` file | `&#123;"token": "Bot_ABC123"&#125;` |
 
-The first source that provides a non-empty value wins. If none of the three sources has a token, discli exits with an error:
+The first source that provides a non-empty value wins. If none of the sources has a token, discli exits with an error:
 
 ```
-Error: No token provided. Use --token, set DISCORD_BOT_TOKEN, or run: discli config set token YOUR_TOKEN
+Error: No token provided. Use --token, set DISCORD_BOT_TOKEN (or DISCORD_TOKEN), or run: discli config set token YOUR_TOKEN
 ```
 
 ## How it works
@@ -90,8 +90,8 @@ discli config show
 
 The file is created automatically by `discli config set`. The `~/.discli/` directory is also created if it does not exist.
 
-<Callout type="warning">
-  The config file stores the token in plain text. Ensure `~/.discli/config.json` has appropriate file permissions. On shared systems, consider using the environment variable approach instead.
+<Callout type="note">
+  On macOS and Linux, discli automatically ensures `~/.discli/config.json` has restrictive `0600` permissions and `~/.discli/` has `0700` permissions so only your user can read the config file.
 </Callout>
 
 ## Why this order

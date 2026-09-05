@@ -169,13 +169,14 @@ def _step_token() -> dict:
     from discli.config import load_config, save_config
 
     click.echo("1. Bot token")
-    env_token = os.environ.get("DISCORD_BOT_TOKEN")
+    env_var_name = "DISCORD_BOT_TOKEN" if os.environ.get("DISCORD_BOT_TOKEN") else ("DISCORD_TOKEN" if os.environ.get("DISCORD_TOKEN") else None)
+    env_token = os.environ.get(env_var_name) if env_var_name else None
     stored = load_config().get("token")
     if env_token:
         # cli.py reads the envvar before falling back to config.json, so a
         # token saved here would be shadowed and the user would never know.
         click.echo(
-            "   Note: DISCORD_BOT_TOKEN is set in your environment and takes "
+            f"   Note: {env_var_name} is set in your environment and takes "
             "precedence over the stored token."
         )
 
@@ -209,7 +210,7 @@ def _step_token() -> dict:
                     # is the case where it decides the outcome: every command
                     # will keep resolving the environment token, not this one.
                     click.echo(
-                        "   Warning: DISCORD_BOT_TOKEN is set and still takes precedence "
+                        f"   Warning: {env_var_name} is set and still takes precedence "
                         "over what was just saved.",
                         err=True,
                     )

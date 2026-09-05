@@ -77,14 +77,14 @@ def _check_python() -> Check:
 
 
 def _check_token() -> Check:
-    token = os.environ.get("DISCORD_BOT_TOKEN") or load_config().get("token")
+    token = os.environ.get("DISCORD_BOT_TOKEN") or os.environ.get("DISCORD_TOKEN") or load_config().get("token")
     if token:
         return Check("bot token", True, "configured")
     return Check(
         "bot token",
         False,
         "not configured",
-        hint="run `discli config set token <TOKEN>` or set DISCORD_BOT_TOKEN",
+        hint="run `discli config set token <TOKEN>` or set DISCORD_BOT_TOKEN / DISCORD_TOKEN",
     )
 
 
@@ -317,14 +317,14 @@ def _permission_checks(server: str) -> list[Check]:
     from discli.client import run_rest_action
     from discli.utils import resolve_guild
 
-    token = os.environ.get("DISCORD_BOT_TOKEN") or load_config().get("token")
+    token = os.environ.get("DISCORD_BOT_TOKEN") or os.environ.get("DISCORD_TOKEN") or load_config().get("token")
     if not token:
         return [
             Check(
                 "guild permissions",
                 False,
                 "no token configured",
-                hint="run `discli config set token <TOKEN>` or set DISCORD_BOT_TOKEN",
+                hint="run `discli config set token <TOKEN>` or set DISCORD_BOT_TOKEN / DISCORD_TOKEN",
             )
         ]
 
