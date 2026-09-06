@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections.abc import Iterable
 from typing import Any, Callable, Coroutine
 
@@ -24,8 +25,11 @@ def resolve_token(token: str | None, config: dict) -> str:
     config_token = config.get("token")
     if config_token:
         return config_token
+    env_token = os.environ.get("DISCORD_TOKEN")
+    if env_token:
+        return env_token
     raise click.ClickException(
-        "No token provided. Use --token, set DISCORD_BOT_TOKEN, or run: discli config set token YOUR_TOKEN"
+        "No token provided. Use --token, set DISCORD_BOT_TOKEN (or DISCORD_TOKEN), or run: discli config set token YOUR_TOKEN"
     )
 
 

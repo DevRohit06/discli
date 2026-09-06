@@ -1,3 +1,4 @@
+import os
 import sys
 
 import click
@@ -74,6 +75,8 @@ def main(ctx, token, use_json, yes, profile):
     if token is None:
         config = load_config()
         token = config.get("token")
+        if not token:
+            token = os.environ.get("DISCORD_TOKEN")
     ctx.obj["token"] = token
     ctx.obj["use_json"] = use_json
     ctx.obj["yes"] = yes

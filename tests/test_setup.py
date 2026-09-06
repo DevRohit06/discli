@@ -471,6 +471,33 @@ def test_saving_a_token_while_the_env_var_shadows_it_says_so(wizard, monkeypatch
     assert "still takes precedence" in result.output
 
 
+def test_setup_picks_up_discord_token_candidate_without_shadowing(wizard, monkeypatch):
+    """setup offers DISCORD_TOKEN as fallback candidate, but saving to config does not warn of shadowing."""
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("DISCORD_TOKEN", "discord-token")
+
+    result = CliRunner().invoke(
+        main, ["setup"], input="n\npasted-token\ny\nn\nn\nn\nchat\nn\n"
+    )
+
+    assert wizard["token"] == "pasted-token"
+    assert "still takes precedence" not in result.output
+
+
+def test_setup_reuses_discord_token_when_confirmed(wizard, monkeypatch):
+    """setup accepts DISCORD_TOKEN when user confirms reusing existing token."""
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("DISCORD_TOKEN", "discord-token")
+
+    result = CliRunner().invoke(
+        main, ["setup"], input="y\ny\nn\nn\nn\nchat\nn\n"
+    )
+
+    assert result.exit_code == 0
+    assert "1. Bot token" in result.output
+    assert "still takes precedence" not in result.output
+
+
 @pytest.mark.asyncio
 async def test_identify_caps_the_guild_list_it_reports():
     """The step only needs to prove *which* bot the token belongs to. A bot

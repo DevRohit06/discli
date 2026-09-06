@@ -169,9 +169,9 @@ def _step_token() -> dict:
     from discli.config import load_config, save_config
 
     click.echo("1. Bot token")
-    env_token = os.environ.get("DISCORD_BOT_TOKEN")
+    env_bot_token = os.environ.get("DISCORD_BOT_TOKEN")
     stored = load_config().get("token")
-    if env_token:
+    if env_bot_token:
         # cli.py reads the envvar before falling back to config.json, so a
         # token saved here would be shadowed and the user would never know.
         click.echo(
@@ -179,7 +179,7 @@ def _step_token() -> dict:
             "precedence over the stored token."
         )
 
-    candidate = env_token or stored
+    candidate = env_bot_token or stored or os.environ.get("DISCORD_TOKEN")
     if candidate and not click.confirm(
         "   Use the token already configured?", default=True
     ):
@@ -204,7 +204,7 @@ def _step_token() -> dict:
             if candidate != stored:
                 save_config({"token": candidate})
                 click.echo("   Saved to ~/.discli/config.json")
-                if env_token and candidate != env_token:
+                if env_bot_token and candidate != env_bot_token:
                     # The note before the prompt is far away by now, and this
                     # is the case where it decides the outcome: every command
                     # will keep resolving the environment token, not this one.

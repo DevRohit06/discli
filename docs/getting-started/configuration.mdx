@@ -15,9 +15,10 @@ Your Discord bot token is the only required configuration. discli resolves the t
 |----------|--------|---------|
 | 1 (highest) | `--token` flag | `discli --token YOUR_TOKEN server list` |
 | 2 | `DISCORD_BOT_TOKEN` environment variable | `export DISCORD_BOT_TOKEN=your_token` |
-| 3 (lowest) | Config file (`~/.discli/config.json`) | `discli config set token YOUR_TOKEN` |
+| 3 | Config file (`~/.discli/config.json`) | `discli config set token YOUR_TOKEN` |
+| 4 (lowest) | `DISCORD_TOKEN` environment variable | `export DISCORD_TOKEN=your_token` |
 
-This means a `--token` flag always wins, followed by the environment variable, followed by the saved config file. Use whichever method fits your workflow.
+This means a `--token` flag always wins, followed by `DISCORD_BOT_TOKEN`, followed by the saved config file, and finally `DISCORD_TOKEN` as a generic fallback. Use whichever method fits your workflow.
 
 ### Option 1: Config file (recommended for local use)
 
@@ -27,24 +28,14 @@ Store the token persistently so you do not have to provide it every time:
 discli config set token YOUR_BOT_TOKEN
 ```
 
-```
-Set token.
-```
-
-This writes to `~/.discli/config.json`:
-
 ```json
 {
   "token": "YOUR_BOT_TOKEN"
 }
 ```
 
-<Callout type="warning">
-  The config file stores your token in plain text. Make sure `~/.discli/config.json` has appropriate file permissions. On macOS/Linux, restrict access with:
-
-  ```bash
-  chmod 600 ~/.discli/config.json
-  ```
+<Callout type="note">
+  On macOS and Linux, discli automatically creates `~/.discli/config.json` with restricted `0600` permissions and sets `~/.discli/` to `0700` so other local users cannot read your token.
 </Callout>
 
 ### Option 2: Environment variable (recommended for CI/containers)
