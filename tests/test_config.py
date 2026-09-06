@@ -111,3 +111,88 @@ def test_save_config_warns_on_stderr_if_dir_chmod_fails(tmp_path, monkeypatch, c
     assert "could not set permissions" in captured.err
     assert "Permission denied on dir chmod" in captured.err
     assert load_config(config_path) == {"token": "secret-token"}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file permissions not applicable on Windows")
+def test_save_config_refuses_rather_than_writing_the_token_unprotected(tmp_path, monkeypatch):
+    """A failed open() must propagate, not fall back to a plain write.
+
+    The fallback that used to live here wrote the token with whatever the
+    umask gave it and said nothing, which is the exact exposure the rest of
+    this function exists to prevent -- and it was invisible, because every
+    other failure path in save_config warns on stderr.
+    """
+    config_path = tmp_path / ".discli" / "config.json"
+
+    def refuse(*args, **kwargs):
+        raise OSError("Permission denied on open")
+
+    monkeypatch.setattr(os, "open", refuse)
+
+    with pytest.raises(OSError):
+        save_config({"token": "secret-token"}, config_path)
+
+    assert not config_path.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file permissions not applicable on Windows")
+def test_save_config_releases_the_descriptor_if_it_cannot_be_wrapped(tmp_path, monkeypatch):
+    """fdopen() failing is the one window where nothing else owns the fd."""
+    config_path = tmp_path / ".discli" / "config.json"
+    closed = []
+    real_close = os.close
+
+    def spy_close(fd):
+        closed.append(fd)
+        real_close(fd)
+
+    def refuse(fd, *args, **kwargs):
+        raise OSError("cannot wrap descriptor")
+
+    monkeypatch.setattr(os, "close", spy_close)
+    monkeypatch.setattr(os, "fdopen", refuse)
+
+    with pytest.raises(OSError):
+        save_config({"token": "secret-token"}, config_path)
+
+    assert len(closed) == 1, "descriptor leaked when fdopen() failed"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file permissions not applicable on Windows")
+def test_save_config_does_not_close_a_descriptor_the_file_object_owns(tmp_path, monkeypatch):
+    """Once fdopen() returns, the file object closes the fd on its way out.
+
+    Closing it a second time is not merely redundant: between the two calls
+    another thread can open a file and be handed the same number, and the
+    stray close takes that file down instead. serve.py runs threads.
+    """
+    config_path = tmp_path / ".discli" / "config.json"
+    closed = []
+    real_close = os.close
+    real_fdopen = os.fdopen
+
+    def spy_close(fd):
+        closed.append(fd)
+        real_close(fd)
+
+    class ExplodesOnWrite:
+        def __init__(self, handle):
+            self._handle = handle
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            self._handle.close()
+            return False
+
+        def write(self, _):
+            raise OSError("No space left on device")
+
+    monkeypatch.setattr(os, "close", spy_close)
+    monkeypatch.setattr(os, "fdopen", lambda fd, *a, **k: ExplodesOnWrite(real_fdopen(fd, *a, **k)))
+
+    with pytest.raises(OSError):
+        save_config({"token": "secret-token"}, config_path)
+
+    assert closed == [], "save_config closed a descriptor the file object already owns"
