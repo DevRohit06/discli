@@ -97,14 +97,19 @@ def test_save_config_warns_on_stderr_if_dir_chmod_fails(tmp_path, monkeypatch, c
     config_dir = tmp_path / ".discli"
     config_path = config_dir / "config.json"
 
-    real_chmod = os.chmod
+    # Patch Path.chmod, not os.chmod: save_config calls path.parent.chmod(),
+    # and on Python 3.10 pathlib routes that through a _NormalAccessor that
+    # binds os.chmod at import time, so patching the os module never
+    # intercepts it. The accessor layer is gone in 3.11+, which is why
+    # patching os.chmod appears to work everywhere except 3.10.
+    real_chmod = Path.chmod
 
-    def fail_dir_chmod(path, mode, **kwargs):
-        if str(path) == str(config_dir):
+    def fail_dir_chmod(self, mode, **kwargs):
+        if str(self) == str(config_dir):
             raise OSError("Permission denied on dir chmod")
-        return real_chmod(path, mode, **kwargs)
+        return real_chmod(self, mode, **kwargs)
 
-    monkeypatch.setattr(os, "chmod", fail_dir_chmod)
+    monkeypatch.setattr(Path, "chmod", fail_dir_chmod)
     save_config({"token": "secret-token"}, config_path)
 
     captured = capsys.readouterr()
