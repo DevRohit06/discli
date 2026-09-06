@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path.home() / ".discli" / "config.json"
@@ -16,8 +17,9 @@ def save_config(data: dict, path: Path = DEFAULT_CONFIG_PATH) -> None:
     if os.name != "nt":
         try:
             path.parent.chmod(0o700)
-        except OSError:
-            pass
+        except OSError as exc:
+            sys.stderr.write(f"Warning: could not set permissions on {path.parent}: {exc}\n")
+            sys.stderr.flush()
 
     existing = load_config(path)
     existing.update(data)
@@ -25,14 +27,26 @@ def save_config(data: dict, path: Path = DEFAULT_CONFIG_PATH) -> None:
 
     if os.name != "nt":
         flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        mode = 0o600
         try:
-            fd = os.open(path, flags, mode)
+            fd = os.open(path, flags, 0o600)
+        except OSError:
+            path.write_text(content, encoding="utf-8")
+            return
+
+        try:
+            try:
+                os.fchmod(fd, 0o600)
+            except OSError as exc:
+                sys.stderr.write(f"Warning: could not set permissions on {path}: {exc}\n")
+                sys.stderr.flush()
             with open(fd, "w", encoding="utf-8") as f:
                 f.write(content)
-            path.chmod(0o600)
             return
-        except OSError:
-            pass
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
 
     path.write_text(content, encoding="utf-8")

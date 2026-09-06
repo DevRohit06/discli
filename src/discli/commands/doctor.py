@@ -77,7 +77,7 @@ def _check_python() -> Check:
 
 
 def _check_token() -> Check:
-    token = os.environ.get("DISCORD_BOT_TOKEN") or os.environ.get("DISCORD_TOKEN") or load_config().get("token")
+    token = os.environ.get("DISCORD_BOT_TOKEN") or load_config().get("token") or os.environ.get("DISCORD_TOKEN")
     if token:
         return Check("bot token", True, "configured")
     return Check(
@@ -317,7 +317,7 @@ def _permission_checks(server: str) -> list[Check]:
     from discli.client import run_rest_action
     from discli.utils import resolve_guild
 
-    token = os.environ.get("DISCORD_BOT_TOKEN") or os.environ.get("DISCORD_TOKEN") or load_config().get("token")
+    token = os.environ.get("DISCORD_BOT_TOKEN") or load_config().get("token") or os.environ.get("DISCORD_TOKEN")
     if not token:
         return [
             Check(

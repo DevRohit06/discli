@@ -5,7 +5,7 @@ description: How discli finds and uses your Discord bot token
 
 # Token Resolution
 
-discli needs a Discord bot token to authenticate with the Discord API. The token is resolved through a three-level priority chain, giving you flexibility across different environments.
+discli needs a Discord bot token to authenticate with the Discord API. The token is resolved through a four-level priority chain, giving you flexibility across different environments.
 
 ## Resolution chain
 
@@ -17,12 +17,15 @@ flowchart TD
     D -- Yes --> E[Use env var value]
     D -- No --> F{~/.discli/config.json\nhas token?}
     F -- Yes --> G[Use config value]
-    F -- No --> H[Error: No token\nprovided]
+    F -- No --> H{DISCORD_TOKEN\nenv var set?}
+    H -- Yes --> I[Use fallback env var value]
+    H -- No --> J[Error: No token\nprovided]
 
     style C fill:#059669,color:#fff
     style E fill:#059669,color:#fff
     style G fill:#059669,color:#fff
-    style H fill:#dc2626,color:#fff
+    style I fill:#059669,color:#fff
+    style J fill:#dc2626,color:#fff
 ```
 
 ### Priority order
@@ -30,8 +33,9 @@ flowchart TD
 | Priority | Source | Example |
 |---|---|---|
 | 1 (highest) | `--token` CLI flag | `discli --token Bot_ABC123 message send ...` |
-| 2 | `DISCORD_BOT_TOKEN` / `DISCORD_TOKEN` environment variable | `export DISCORD_BOT_TOKEN=Bot_ABC123` |
-| 3 (lowest) | `~/.discli/config.json` file | `&#123;"token": "Bot_ABC123"&#125;` |
+| 2 | `DISCORD_BOT_TOKEN` environment variable | `export DISCORD_BOT_TOKEN=Bot_ABC123` |
+| 3 | `~/.discli/config.json` file | `&#123;"token": "Bot_ABC123"&#125;` |
+| 4 (lowest) | `DISCORD_TOKEN` environment variable | `export DISCORD_TOKEN=Bot_ABC123` |
 
 The first source that provides a non-empty value wins. If none of the sources has a token, discli exits with an error:
 
@@ -43,7 +47,7 @@ Error: No token provided. Use --token, set DISCORD_BOT_TOKEN (or DISCORD_TOKEN),
 
 Token resolution happens in two stages within `cli.py` and `client.py`:
 
-**Stage 1 -- CLI entry (`cli.py`):** Click's `@click.option("--token", envvar="DISCORD_BOT_TOKEN")` handles the first two levels. If `--token` is passed, Click uses that value. If not, Click checks the `DISCORD_BOT_TOKEN` environment variable. If neither is set, the token is `None` and discli falls back to loading from the config file.
+**Stage 1 -- CLI entry (`cli.py`):** Click's `@click.option("--token", envvar="DISCORD_BOT_TOKEN")` handles the first two levels. If `--token` is passed, Click uses that value. If not, Click checks the `DISCORD_BOT_TOKEN` environment variable. If neither is set, the token is `None` and discli falls back to loading from the config file, and finally to `DISCORD_TOKEN`.
 
 ```python
 # cli.py — main group
@@ -52,10 +56,12 @@ def main(ctx, token, ...):
     if token is None:
         config = load_config()
         token = config.get("token")
+        if not token:
+            token = os.environ.get("DISCORD_TOKEN")
     ctx.obj["token"] = token
 ```
 
-**Stage 2 -- Client (`client.py`):** Before running the Discord action, `resolve_token()` verifies that a token was found. If `ctx.obj["token"]` is still `None`, it raises an error.
+**Stage 2 -- Client (`client.py`):** Before running the Discord action, `resolve_token()` verifies that a token was found following the same priority chain. If no token was configured, it raises an error.
 
 ```python
 # client.py
@@ -65,6 +71,9 @@ def resolve_token(token: str | None, config: dict) -> str:
     config_token = config.get("token")
     if config_token:
         return config_token
+    env_token = os.environ.get("DISCORD_TOKEN")
+    if env_token:
+        return env_token
     raise click.ClickException("No token provided. ...")
 ```
 
@@ -96,7 +105,7 @@ The file is created automatically by `discli config set`. The `~/.discli/` direc
 
 ## Why this order
 
-The three-level priority is designed for different usage patterns:
+The four-level priority is designed for different usage patterns:
 
 <Tabs>
   <Tab title="Local development">
@@ -111,7 +120,7 @@ The three-level priority is designed for different usage patterns:
     The token persists across terminal sessions, reboots, and shell changes.
   </Tab>
   <Tab title="CI / Automation">
-    **Environment variable** is the standard for CI pipelines and Docker containers. It avoids writing secrets to disk:
+    **Environment variable** (`DISCORD_BOT_TOKEN`) is the standard for CI pipelines and Docker containers. It avoids writing secrets to disk:
 
     ```yaml
     # GitHub Actions example
@@ -136,6 +145,9 @@ The three-level priority is designed for different usage patterns:
     # Your default config token is unaffected
     discli message send "#general" "Still uses config token"
     ```
+  </Tab>
+  <Tab title="Generic fallback">
+    **Environment variable fallback** (`DISCORD_TOKEN`) is supported for environments or containers that use the generic Discord token variable name. It is ranked below the config file so that existing discli configurations are not accidentally shadowed by other bots running in the same environment.
   </Tab>
 </Tabs>
 

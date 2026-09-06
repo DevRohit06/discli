@@ -471,8 +471,8 @@ def test_saving_a_token_while_the_env_var_shadows_it_says_so(wizard, monkeypatch
     assert "still takes precedence" in result.output
 
 
-def test_saving_a_token_while_discord_token_shadows_it_says_so(wizard, monkeypatch):
-    """setup notices DISCORD_TOKEN shadowing as well."""
+def test_setup_picks_up_discord_token_candidate_without_shadowing(wizard, monkeypatch):
+    """setup offers DISCORD_TOKEN as fallback candidate, but saving to config does not warn of shadowing."""
     monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
     monkeypatch.setenv("DISCORD_TOKEN", "discord-token")
 
@@ -481,7 +481,21 @@ def test_saving_a_token_while_discord_token_shadows_it_says_so(wizard, monkeypat
     )
 
     assert wizard["token"] == "pasted-token"
-    assert "DISCORD_TOKEN is set and still takes precedence" in result.output
+    assert "still takes precedence" not in result.output
+
+
+def test_setup_reuses_discord_token_when_confirmed(wizard, monkeypatch):
+    """setup accepts DISCORD_TOKEN when user confirms reusing existing token."""
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("DISCORD_TOKEN", "discord-token")
+
+    result = CliRunner().invoke(
+        main, ["setup"], input="y\ny\nn\nn\nn\nchat\nn\n"
+    )
+
+    assert result.exit_code == 0
+    assert "1. Bot token" in result.output
+    assert "still takes precedence" not in result.output
 
 
 @pytest.mark.asyncio

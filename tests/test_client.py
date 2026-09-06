@@ -20,6 +20,16 @@ def test_resolve_token_from_config():
     assert resolve_token(None, {"token": "config-token"}) == "config-token"
 
 
+def test_resolve_token_from_discord_token(monkeypatch):
+    monkeypatch.setenv("DISCORD_TOKEN", "token-from-discord-token")
+    assert resolve_token(None, {}) == "token-from-discord-token"
+
+
+def test_resolve_token_prefers_config_over_discord_token(monkeypatch):
+    monkeypatch.setenv("DISCORD_TOKEN", "fallback-token")
+    assert resolve_token(None, {"token": "config-token"}) == "config-token"
+
+
 def test_resolve_token_missing():
     with pytest.raises(click.ClickException) as excinfo:
         resolve_token(None, {})
@@ -47,13 +57,33 @@ def test_cli_resolves_token_from_discord_token(monkeypatch):
     assert captured.get("token") == "token-from-discord-token"
 
 
-def test_cli_prefers_discord_bot_token_over_discord_token(monkeypatch):
+def test_cli_prefers_config_token_over_discord_token(monkeypatch):
+    from click.testing import CliRunner
+    from discli.cli import main
+
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("DISCORD_TOKEN", "fallback-token")
+    monkeypatch.setattr("discli.cli.load_config", lambda: {"token": "config-token"})
+
+    captured = {}
+
+    def fake_action(ctx, action):
+        captured["token"] = ctx.obj["token"]
+
+    monkeypatch.setattr("discli.commands.channel.run_rest", fake_action)
+
+    result = CliRunner().invoke(main, ["channel", "list"])
+    assert result.exit_code == 0
+    assert captured.get("token") == "config-token"
+
+
+def test_cli_prefers_discord_bot_token_over_all(monkeypatch):
     from click.testing import CliRunner
     from discli.cli import main
 
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "bot-token-primary")
     monkeypatch.setenv("DISCORD_TOKEN", "fallback-token")
-    monkeypatch.setattr("discli.cli.load_config", lambda: {})
+    monkeypatch.setattr("discli.cli.load_config", lambda: {"token": "config-token"})
 
     captured = {}
 

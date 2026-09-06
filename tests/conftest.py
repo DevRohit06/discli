@@ -24,6 +24,9 @@ def no_network(monkeypatch):
     """
     import discord.http
 
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("DISCORD_TOKEN", raising=False)
+
     async def _blocked(*args, **kwargs):
         raise AssertionError(
             "test attempted a real Discord API request; fake discord.Client "

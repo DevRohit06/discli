@@ -1,3 +1,4 @@
+import os
 import sys
 
 import click
@@ -60,7 +61,7 @@ def _force_utf8_output() -> None:
     prog_name="discli",
     message="%(prog)s version %(version)s",
 )
-@click.option("--token", envvar=["DISCORD_BOT_TOKEN", "DISCORD_TOKEN"], default=None, help="Discord bot token.")
+@click.option("--token", envvar="DISCORD_BOT_TOKEN", default=None, help="Discord bot token.")
 @click.option("--json", "use_json", is_flag=True, default=False, help="Output as JSON.")
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompts for destructive actions.")
 @click.option("--profile", envvar="DISCLI_PROFILE", default=None,
@@ -74,6 +75,8 @@ def main(ctx, token, use_json, yes, profile):
     if token is None:
         config = load_config()
         token = config.get("token")
+        if not token:
+            token = os.environ.get("DISCORD_TOKEN")
     ctx.obj["token"] = token
     ctx.obj["use_json"] = use_json
     ctx.obj["yes"] = yes
